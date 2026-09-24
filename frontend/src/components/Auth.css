@@ -1,0 +1,194 @@
+.portal-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #ffffff; /* خلفية بيضاء صافية */
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  direction: ltr;
+  padding: 20px;
+}
+
+.portal-card {
+  background: #ffffff;
+  padding: 40px 30px;
+  border-radius: 12px;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 440px;
+  border: 1px solid #e2e8f0;
+}
+
+/* توسيط اللوجو والاسم في المنتصف تماماً */
+.portal-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 20px;
+  text-align: center;
+}
+
+.portal-logo {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+}
+
+.portal-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: -0.5px;
+}
+
+.portal-message {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.portal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* إزالة الخلفية الرمادية وخلي الكتابة باللون الأسود الصريح */
+.portal-form input[type="email"],
+.portal-form input[type="password"],
+.portal-form input[type="text"] {
+  width: 100%;
+  padding: 14px 16px;
+  background: #ffffff !important; /* خلفية بيضاء صريحة */
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 15px;
+  color: #000000 !important; /* النص المكتوب باللون الأسود تماماً */
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.portal-form input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 30px white inset !important;
+  -webkit-text-fill-color: #000000 !important;
+}
+
+.portal-form input:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+.recaptcha-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 12px 15px;
+  margin-top: 5px;
+}
+
+.recaptcha-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.recaptcha-inner input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.recaptcha-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 10px;
+  color: #6b7280;
+}
+
+.recaptcha-logo-icon {
+  font-size: 18px;
+  color: #2563eb;
+}
+
+.remember-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #475569;
+  margin-top: 5px;
+  cursor: pointer;
+}
+
+.remember-row input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* زر الـ Login الأزرق */
+.portal-login-btn {
+  width: 100%;
+  padding: 14px;
+  background: #0082c8;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-top: 5px;
+}
+
+.portal-login-btn:hover {
+  background: #026aa7;
+}
+
+/* زر الـ Sign Up الإضافي تحت زر الـ Login */
+.portal-signup-btn {
+  width: 100%;
+  padding: 12px;
+  background: #10b981; /* لون أخضر جذاب لطلب الحساب الجديد */
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.portal-signup-btn:hover {
+  opacity: 0.9;
+}
+
+.portal-footer {
+  margin-top: 25px;
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.portal-link {
+  color: #0284c7;
+  text-decoration: underline;
+  cursor: pointer;
+}
