@@ -10,10 +10,9 @@ const firebaseConfig = {
   storageBucket: "ostudio-98af9.firebasestorage.app",
   messagingSenderId: "560656548815",
   appId: "1:560656548815:web:e1ded530aa383bdcd7c8ba",
-  measurementId: "G-L4HKDNTSSD"
+  measurementId: "G-L4HKDNTSSD",
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
