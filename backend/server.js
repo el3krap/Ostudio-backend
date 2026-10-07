@@ -1,148 +1,588 @@
+// backend/server.js
+
+require('dotenv').config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
+
+// ======================================================
+// App
+// ======================================================
+
 const app = express();
-app.use(express.json());
-app.use(cors());
 
-// 1. الاتصال بقاعدة البيانات
-const MONGO_URI = "mongodb+srv://ali123456987elfar_db_user:FOISq4h8zCpoBedT@cluster0.x4gfps5.mongodb.net/ostudio_db?retryWrites=true&w=majority&appName=Cluster0";
 
-mongoose.connect(MONGO_URI)
-.then(() => console.log('✅ Connected to MongoDB successfully!'))
-.catch(err => console.error(' MongoDB Connection Error:', err));
+// ======================================================
+// Environment
+// ======================================================
 
-// ----------------------------------------------------
-// أ. استيراد وربط مسارات المصادقة (Auth Routes) الخارجي
-// ----------------------------------------------------
-const authRoutes = require('./routes/auth'); 
-app.use('/api/auth', authRoutes);
+const PORT =
+    process.env.PORT || 8080;
 
-// ----------------------------------------------------
-// ب. مسارات إدارة المستخدمين والأدمن (Admin User Management Routes)
-// ----------------------------------------------------
-// بما أن نموذج User متعرف في ملف auth.js، يفضل وضع هذه المسارات هناك،
-// ولكن لتلبية طلبك وإضافتها هنا، سنقوم بجلب نموذج User إذا كان مسجلاً، 
-// أو يمكنك اعتمادها في routes/auth.js. للتوضيح، قمنا بتنظيمها لتعمل بسلاسة.
+const MONGO_URI =
+    process.env.MONGO_URI ||
+    process.env.MONGODB_URI ||
+    process.env.DATABASE_URL;
 
-// ----------------------------------------------------
-// ج. نظام تخزين الإشعارات المؤقت (Notifications Memory Store)
-// ----------------------------------------------------
-let notificationsStore = {};
+const FRONTEND_URL =
+    process.env.FRONTEND_URL ||
+    'http://localhost:5173';
 
-// مسار إرسال إشعار للمصمم عند إسناد المشروع
-app.post('/api/auth/notify', (req, res) => {
-  try {
-    const { designerId, message } = req.body;
-    if (!designerId || !message) {
-      return res.status(400).json({ message: 'بيانات الإشعار غير مكتملة' });
-    }
-    if (!notificationsStore[designerId]) {
-      notificationsStore[designerId] = [];
-    }
-    notificationsStore[designerId].push({ message, date: new Date() });
-    res.status(200).json({ message: 'تم إرسال الإشعار بنجاح' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
-// مسار جلب إشعارات المصمم بواسطة الـ ID أو الاسم
-app.get('/api/auth/notifications/:id', (req, res) => {
-  try {
-    const designerId = req.params.id;
-    const userNotifs = notificationsStore[designerId] || [];
-    res.status(200).json(userNotifs);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});// ----------------------------------------------------
-// د. تصميم هيكل المشروع (Project Schema)
-// ----------------------------------------------------
-const projectSchema = new mongoose.Schema({
-  projectName: { type: String, required: true },
-  brief: { type: String, required: true },        
-  briefName: { type: String },                    
-  managerNotes: { type: String },                 
-  startDate: { type: String },
-  deadline: { type: String },
-  status: { type: String, default: 'in-progress' },
-  assignedDesigner: { type: String, default: '' }, // حقل المصمم المسند إليه المشروع
-  checkpoints: [
-    {
-      title: String,
-      isCompleted: { type: Boolean, default: false },
-      imageLink: String,
-      fileName: String,
-      note: String
-    }
-  ],
-  isDoneAll: { type: Boolean, default: false },
-  renderStatus: { type: String, default: 'pending' },
-  renderFileLink: { type: String, default: '' },
-  renderFileName: { type: String, default: '' },
-  presentationFileLink: { type: String, default: '' },
-  presentationFileName: { type: String, default: '' },
-  presenterNote: { type: String, default: '' }
-}, { timestamps: true });
+// ======================================================
+// Basic configuration validation
+// ======================================================
 
-const Project = mongoose.model('Project', projectSchema);
-
-// 3. مسار إنشاء مشروع جديد
-app.post('/api/projects/create', async (req, res) => {
-  try {
-    const { projectName, brief, briefName, managerNotes, startDate, deadline } = req.body;
-    
-    const newProject = new Project({
-      projectName,
-      brief,
-      briefName,
-      managerNotes,
-      startDate,
-      deadline,
-      status: 'in-progress',
-      checkpoints: []
-    });
-
-    await newProject.save();
-    res.status(201).json({ message: 'Project created successfully!', project: newProject });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to create project', details: err.message });
-  }
-});
-
-// 4. مسار جلب جميع المشاريع (مرتبة من الأحدث للأقدم تلقائياً عبر timestamps)
-app.get('/api/projects/all', async (req, res) => {
-  try {
-    const projects = await Project.find().sort({ createdAt: -1 });
-    res.status(200).json(projects);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch projects' });
-  }
-});
-
-// 5. مسار تحديث المشروع
-app.put('/api/projects/update/:id', async (req, res) => {
-  try {
-    const updatedProject = await Project.findByIdAndUpdate(
-      req.params.id,
-      { $set: req.body },
-      { new: true }
+if (!MONGO_URI) {
+    console.error(
+        '❌ Missing MongoDB connection string.'
     );
 
-    if (!updatedProject) {
-      return res.status(404).json({ error: 'Project not found' });
+    console.error(
+        'Add MONGO_URI to backend/.env'
+    );
+
+    process.exit(1);
+}
+
+
+// ======================================================
+// CORS
+// ======================================================
+
+const allowedOrigins = [
+    FRONTEND_URL,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+];
+
+
+app.use(
+    cors({
+        origin: function (origin, callback) {
+
+            // Allow requests such as Postman/server-to-server
+            if (!origin) {
+                return callback(null, true);
+            }
+
+
+            if (
+                allowedOrigins.includes(origin)
+            ) {
+                return callback(null, true);
+            }
+
+
+            console.warn(
+                `⚠️ CORS blocked origin: ${origin}`
+            );
+
+            return callback(
+                new Error(
+                    'Not allowed by CORS'
+                )
+            );
+        },
+
+        credentials: true,
+
+        methods: [
+            'GET',
+            'POST',
+            'PUT',
+            'PATCH',
+            'DELETE',
+            'OPTIONS',
+        ],
+
+        allowedHeaders: [
+            'Content-Type',
+            'Authorization',
+        ],
+    })
+);
+
+
+// ======================================================
+// Body parsers
+// ======================================================
+
+app.use(
+    express.json({
+        limit: '10mb',
+    })
+);
+
+app.use(
+    express.urlencoded({
+        extended: true,
+        limit: '10mb',
+    })
+);
+
+
+// ======================================================
+// Request logging
+// ======================================================
+
+app.use(
+    (req, res, next) => {
+
+        const startedAt =
+            Date.now();
+
+
+        res.on(
+            'finish',
+            () => {
+
+                const duration =
+                    Date.now() -
+                    startedAt;
+
+
+                console.log(
+                    `${req.method} ${req.originalUrl} → ${res.statusCode} (${duration}ms)`
+                );
+            }
+        );
+
+
+        next();
     }
+);
 
-    res.status(200).json({ message: 'Project updated successfully!', project: updatedProject });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to update project', details: err.message });
-  }
-});
 
-// تشغيل السيرفر
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-});
+// ======================================================
+// Health check
+// ======================================================
+
+app.get(
+    '/',
+    (req, res) => {
+
+        return res.status(200).json({
+            success: true,
+
+            message:
+                'OSTUDIO backend is running.',
+
+            service:
+                'Ostudio API',
+
+            status:
+                'online',
+
+            timestamp:
+                new Date().toISOString(),
+        });
+    }
+);
+
+
+app.get(
+    '/api/health',
+    (req, res) => {
+
+        return res.status(200).json({
+            success: true,
+
+            message:
+                'OSTUDIO API is healthy.',
+
+            database:
+                mongoose.connection.readyState === 1
+                    ? 'connected'
+                    : 'disconnected',
+
+            timestamp:
+                new Date().toISOString(),
+        });
+    }
+);
+
+
+// ======================================================
+// API Routes
+// ======================================================
+
+// Authentication
+const authRoutes =
+    require('./routes/auth');
+
+
+// Admin
+const adminRoutes =
+    require('./routes/admin');
+
+
+// Manager
+const managerRoutes =
+    require('./routes/manager');
+
+
+// Account Manager
+const accountManagerRoutes =
+    require('./routes/accountManager');
+
+
+// Coordinator
+const coordinatorRoutes =
+    require('./routes/coordinator');
+
+
+// Designer
+const designerRoutes =
+    require('./routes/designer');
+
+
+// Notifications
+const notificationRoutes =
+    require('./routes/notifications');
+
+
+// ======================================================
+// Mount routes
+// ======================================================
+
+app.use(
+    '/api/auth',
+    authRoutes
+);
+
+
+app.use(
+    '/api/admin',
+    adminRoutes
+);
+
+
+app.use(
+    '/api/manager',
+    managerRoutes
+);
+
+
+app.use(
+    '/api/account-manager',
+    accountManagerRoutes
+);
+
+
+app.use(
+    '/api/coordinator',
+    coordinatorRoutes
+);
+
+
+app.use(
+    '/api/designer',
+    designerRoutes
+);
+
+
+app.use(
+    '/api/notifications',
+    notificationRoutes
+);
+
+
+// ======================================================
+// 404 Handler
+// ======================================================
+
+app.use(
+    (req, res) => {
+
+        return res.status(404).json({
+            success: false,
+
+            message:
+                'API endpoint not found.',
+
+            path:
+                req.originalUrl,
+
+            method:
+                req.method,
+        });
+    }
+);
+
+
+// ======================================================
+// Global Error Handler
+// ======================================================
+
+app.use(
+    (err, req, res, next) => {
+
+        console.error(
+            '❌ Server error:',
+            err
+        );
+
+
+        // CORS error
+        if (
+            err.message ===
+            'Not allowed by CORS'
+        ) {
+            return res.status(403).json({
+                success: false,
+
+                message:
+                    'CORS policy blocked this request.',
+            });
+        }
+
+
+        // JSON body parsing error
+        if (
+            err instanceof SyntaxError &&
+            err.status === 400 &&
+            'body' in err
+        ) {
+            return res.status(400).json({
+                success: false,
+
+                message:
+                    'Invalid JSON request body.',
+            });
+        }
+
+
+        const statusCode =
+            err.statusCode ||
+            err.status ||
+            500;
+
+
+        return res.status(
+            statusCode
+        ).json({
+            success: false,
+
+            message:
+                statusCode === 500
+                    ? 'Internal server error.'
+                    : err.message ||
+                      'Request failed.',
+        });
+    }
+);
+
+
+// ======================================================
+// MongoDB connection
+// ======================================================
+
+async function connectDatabase() {
+
+    try {
+
+        console.log(
+            '🔄 Connecting to MongoDB...'
+        );
+
+
+        await mongoose.connect(
+            MONGO_URI,
+            {
+                serverSelectionTimeoutMS:
+                    10000,
+
+                socketTimeoutMS:
+                    45000,
+            }
+        );
+
+
+        console.log(
+            '✅ MongoDB connected successfully.'
+        );
+
+
+        console.log(
+            `📦 Database: ${
+                mongoose.connection.name
+            }`
+        );
+
+    } catch (error) {
+
+        console.error(
+            '❌ MongoDB connection failed:',
+            error.message
+        );
+
+        process.exit(1);
+    }
+}
+
+
+// ======================================================
+// MongoDB events
+// ======================================================
+
+mongoose.connection.on(
+    'connected',
+    () => {
+
+        console.log(
+            '🟢 MongoDB connection established.'
+        );
+    }
+);
+
+
+mongoose.connection.on(
+    'error',
+    (error) => {
+
+        console.error(
+            '❌ MongoDB error:',
+            error
+        );
+    }
+);
+
+
+mongoose.connection.on(
+    'disconnected',
+    () => {
+
+        console.warn(
+            '🟡 MongoDB disconnected.'
+        );
+    }
+);
+
+
+// ======================================================
+// Graceful shutdown
+// ======================================================
+
+async function shutdown(
+    signal
+) {
+
+    console.log(
+        `\n🛑 ${signal} received. Shutting down...`
+    );
+
+
+    try {
+
+        await mongoose.connection.close();
+
+        console.log(
+            '✅ MongoDB connection closed.'
+        );
+
+
+        process.exit(0);
+
+    } catch (error) {
+
+        console.error(
+            '❌ Error during shutdown:',
+            error
+        );
+
+        process.exit(1);
+    }
+}
+
+
+process.on(
+    'SIGINT',
+    () => shutdown('SIGINT')
+);
+
+
+process.on(
+    'SIGTERM',
+    () => shutdown('SIGTERM')
+);
+
+
+// ======================================================
+// Start server
+// ======================================================
+
+async function startServer() {
+
+    await connectDatabase();
+
+
+    app.listen(
+        PORT,
+        () => {
+
+            console.log('');
+            console.log(
+                '=========================================='
+            );
+            console.log(
+                '        🚀 OSTUDIO BACKEND SERVER'
+            );
+            console.log(
+                '=========================================='
+            );
+
+            console.log(
+                `🌐 Server: http://localhost:${PORT}`
+            );
+
+            console.log(
+                `❤️ Health: http://localhost:${PORT}/api/health`
+            );
+
+            console.log(
+                `🎨 Frontend: ${FRONTEND_URL}`
+            );
+
+            console.log(
+                '🔐 Authentication: Firebase + MongoDB'
+            );
+
+            console.log(
+                '📦 Database: MongoDB'
+            );
+
+            console.log(
+                '=========================================='
+            );
+            console.log('');
+        }
+    );
+}
+
+
+// ======================================================
+// Start
+// ======================================================
+
+startServer()
+    .catch(
+        (error) => {
+
+            console.error(
+                '❌ Failed to start server:',
+                error
+            );
+
+            process.exit(1);
+        }
+    );
+
+
+// ======================================================
+// Export
+// ======================================================
+
+module.exports = app;

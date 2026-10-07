@@ -1,410 +1,240 @@
-import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "./firebase";
-import { getUserProfile } from "./services/userService";
-import { logoutUser } from "./authService";
+// frontend/src/App.jsx
 
-import Login from "./components/Login";
-import Signup from "./components/Signup";
-import AdminDashboard from "./components/AdminDashboard";
-import ManagerDashboard from "./components/ManagerDashboard";
-import CoordinatorDashboard from "./components/CoordinatorDashboard";
-import DesignerDashboard from "./components/DesignerDashboard";
-import Dashboard from "./components/Dashboard";
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
-const globalStyles = `
-  * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
+// =========================
+// Auth
+// =========================
+import Login from './pages/Auth/Login.jsx';
+import Signup from './pages/Auth/Signup';
 
-  html,
-  body,
-  #root {
-    width: 100%;
-    min-height: 100vh;
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    direction: ltr;
-  }
+// =========================
+// Admin
+// =========================
+import AdminDashboard from './pages/Admin/AdminDashboard';
+import AdminUsers from './pages/Admin/AdminUsers';
+import AdminProjects from './pages/Admin/AdminProjects';
+import AdminTasks from './pages/Admin/AdminTasks';
 
-  body {
-    min-width: 320px;
-  }
+// =========================
+// Manager
+// =========================
+import ManagerDashboard from './pages/Manager/ManagerDashboard';
+import ManagerProjects from './pages/Manager/ManagerProjects';
+import ManagerProjectDetails from './pages/Manager/ManagerProjectDetails';
+import ManagerTasks from './pages/Manager/ManagerTasks';
 
-  .App {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
+// =========================
+// Account Manager
+// =========================
+import AccountManagerDashboard from './pages/AccountManager/AccountManagerDashboard';
+import AccountManagerProjects from './pages/AccountManager/AccountManagerProjects';
+import AccountManagerProjectDetails from './pages/AccountManager/AccountManagerProjectDetails';
 
-  .counter {
-    font-size: 16px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    color: var(--accent);
-    background: var(--accent-bg);
-    border: 2px solid transparent;
-    transition: border-color 0.3s;
-    margin-bottom: 24px;
-  }
+// =========================
+// Coordinator
+// =========================
+import CoordinatorDashboard from './pages/Coordinator/CoordinatorDashboard';
+import CoordinatorProjectDetails from './pages/Coordinator/CoordinatorProjectDetails';
+import CoordinatorAssignments from './pages/Coordinator/CoordinatorAssignments';
+import CoordinatorTasks from './pages/Coordinator/CoordinatorTasks';
 
-  .counter:hover {
-    border-color: var(--accent-border);
-  }
+// =========================
+// Designer
+// =========================
+import DesignerDashboard from './pages/Designer/DesignerDashboard';
+import DesignerProjects from './pages/Designer/DesignerProjects';
+import DesignerProjectDetails from './pages/Designer/DesignerProjectDetails';
+import DesignerTasks from './pages/Designer/DesignerTasks';
 
-  .counter:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
 
-  .hero {
-    position: relative;
-  }
-
-  .hero .base,
-  .hero .framework,
-  .hero .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .hero .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .hero .framework,
-  .hero .vite {
-    position: absolute;
-  }
-
-  .hero .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform:
-      perspective(2000px)
-      rotateZ(300deg)
-      rotateX(44deg)
-      rotateY(39deg)
-      scale(1.4);
-  }
-
-  .hero .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform:
-      perspective(2000px)
-      rotateZ(300deg)
-      rotateX(40deg)
-      rotateY(39deg)
-      scale(0.8);
-  }
-
-  #center {
-    display: flex;
-    flex-direction: column;
-    gap: 25px;
-    place-content: center;
-    place-items: center;
-    flex-grow: 1;
-  }
-
-  @media (max-width: 1024px) {
-    #center {
-      padding: 32px 20px 24px;
-      gap: 18px;
-    }
-  }
-
-  #next-steps {
-    display: flex;
-    border-top: 1px solid var(--border);
-    text-align: left;
-  }
-
-  #next-steps > div {
-    flex: 1 1 0;
-    padding: 32px;
-  }
-
-  @media (max-width: 1024px) {
-    #next-steps > div {
-      padding: 24px 20px;
-    }
-  }
-
-  #next-steps .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    #next-steps {
-      flex-direction: column;
-      text-align: center;
-    }
-  }
-
-  #docs {
-    border-right: 1px solid var(--border);
-  }
-
-  @media (max-width: 1024px) {
-    #docs {
-      border-right: none;
-      border-bottom: 1px solid var(--border);
-    }
-  }
-
-  #next-steps ul {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    gap: 8px;
-    margin: 32px 0 0;
-  }
-
-  #next-steps ul .logo {
-    height: 18px;
-  }
-
-  #next-steps ul a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-  }
-
-  #next-steps ul a:hover {
-    box-shadow: var(--shadow);
-  }
-
-  #next-steps ul a .button-icon {
-    height: 18px;
-    width: 18px;
-  }
-
-  @media (max-width: 1024px) {
-    #next-steps ul {
-      margin-top: 20px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    #next-steps ul li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    #next-steps ul a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-
-  #spacer {
-    height: 88px;
-    border-top: 1px solid var(--border);
-  }
-
-  @media (max-width: 1024px) {
-    #spacer {
-      height: 48px;
-    }
-  }
-
-  .ticks {
-    position: relative;
-    width: 100%;
-  }
-
-  .ticks::before,
-  .ticks::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
-
-  .ticks::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-
-  .ticks::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
-`;
+// ======================================================
+// App
+// ======================================================
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [authPage, setAuthPage] = useState("login");
+    return (
+        <BrowserRouter>
+            <Routes>
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      async (firebaseUser) => {
-        if (!firebaseUser) {
-          setUser(null);
-          localStorage.removeItem("ostudio_user");
-          setLoading(false);
-          return;
-        }
+                {/* ==================================================
+                    PUBLIC AUTH ROUTES
+                   ================================================== */}
 
-        try {
-          const profile = await getUserProfile(firebaseUser.uid);
+                <Route
+                    path="/"
+                    element={<Navigate to="/login" replace />}
+                />
 
-          if (!profile || profile.status !== "active") {
-            await logoutUser();
-            setUser(null);
-            setLoading(false);
-            return;
-          }
+                <Route
+                    path="/login"
+                    element={<Login />}
+                />
 
-          const sessionUser = {
-            ...profile,
-            uid: firebaseUser.uid,
-            id: firebaseUser.uid,
-          };
+                <Route
+                    path="/signup"
+                    element={<Signup />}
+                />
 
-          setUser(sessionUser);
-          localStorage.setItem(
-            "ostudio_user",
-            JSON.stringify(sessionUser)
-          );
-        } catch (error) {
-          console.error("Auth profile error:", error);
 
-          await logoutUser();
-          setUser(null);
-        } finally {
-          setLoading(false);
-        }
-      }
+                {/* ==================================================
+                    ADMIN ROUTES
+                   ================================================== */}
+
+                <Route
+                    path="/admin/dashboard"
+                    element={<AdminDashboard />}
+                />
+
+                <Route
+                    path="/admin/users"
+                    element={<AdminUsers />}
+                />
+
+                <Route
+                    path="/admin/projects"
+                    element={<AdminProjects />}
+                />
+
+                <Route
+                    path="/admin/projects/:projectId"
+                    element={<AdminProjects />}
+                />
+
+                <Route
+                    path="/admin/tasks"
+                    element={<AdminTasks />}
+                />
+
+                <Route
+                    path="/admin/tasks/:taskId"
+                    element={<AdminTasks />}
+                />
+
+
+                {/* ==================================================
+                    MANAGER ROUTES
+                   ================================================== */}
+
+                <Route
+                    path="/manager/dashboard"
+                    element={<ManagerDashboard />}
+                />
+
+                <Route
+                    path="/manager/projects"
+                    element={<ManagerProjects />}
+                />
+
+                <Route
+                    path="/manager/projects/:projectId"
+                    element={<ManagerProjectDetails />}
+                />
+
+                <Route
+                    path="/manager/tasks"
+                    element={<ManagerTasks />}
+                />
+
+                <Route
+                    path="/manager/tasks/:taskId"
+                    element={<ManagerTasks />}
+                />
+
+
+                {/* ==================================================
+                    ACCOUNT MANAGER ROUTES
+                   ================================================== */}
+
+                <Route
+                    path="/account-manager/dashboard"
+                    element={<AccountManagerDashboard />}
+                />
+
+                <Route
+                    path="/account-manager/projects"
+                    element={<AccountManagerProjects />}
+                />
+
+                <Route
+                    path="/account-manager/projects/:projectId"
+                    element={<AccountManagerProjectDetails />}
+                />
+
+
+                {/* ==================================================
+                    COORDINATOR ROUTES
+                   ================================================== */}
+
+                <Route
+                    path="/coordinator/dashboard"
+                    element={<CoordinatorDashboard />}
+                />
+
+                <Route
+                    path="/coordinator/projects/:projectId"
+                    element={<CoordinatorProjectDetails />}
+                />
+
+                <Route
+                    path="/coordinator/projects/:projectId/assignments"
+                    element={<CoordinatorAssignments />}
+                />
+
+                <Route
+                    path="/coordinator/tasks"
+                    element={<CoordinatorTasks />}
+                />
+
+                <Route
+                    path="/coordinator/tasks/:taskId"
+                    element={<CoordinatorTasks />}
+                />
+
+
+                {/* ==================================================
+                    DESIGNER ROUTES
+                   ================================================== */}
+
+                <Route
+                    path="/designer/dashboard"
+                    element={<DesignerDashboard />}
+                />
+
+                <Route
+                    path="/designer/projects"
+                    element={<DesignerProjects />}
+                />
+
+                <Route
+                    path="/designer/projects/:projectId"
+                    element={<DesignerProjectDetails />}
+                />
+
+                <Route
+                    path="/designer/tasks"
+                    element={<DesignerTasks />}
+                />
+
+                <Route
+                    path="/designer/tasks/:taskId"
+                    element={<DesignerTasks />}
+                />
+
+
+                {/* ==================================================
+                    404 / UNKNOWN ROUTES
+                   ================================================== */}
+
+                <Route
+                    path="*"
+                    element={<Navigate to="/login" replace />}
+                />
+
+            </Routes>
+        </BrowserRouter>
     );
-
-    return unsubscribe;
-  }, []);
-
-  const handleLoginSuccess = (loggedInUser) => {
-    setUser(loggedInUser);
-  };
-
-  const handleLogout = async () => {
-    await logoutUser();
-    setUser(null);
-  };
-
-  let content;
-
-  if (loading) {
-    content = (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "grid",
-          placeItems: "center",
-          fontFamily: "system-ui",
-        }}
-      >
-        Loading Ostudio...
-      </div>
-    );
-  } else if (!user) {
-    content =
-      authPage === "login" ? (
-        <Login
-          onLoginSuccess={handleLoginSuccess}
-          onGoToSignup={() => setAuthPage("signup")}
-        />
-      ) : (
-        <Signup
-          onSignupSuccess={() => setAuthPage("login")}
-          onGoToLogin={() => setAuthPage("login")}
-        />
-      );
-  } else {
-    switch (user.role) {
-      case "admin":
-        content = (
-          <AdminDashboard
-            user={user}
-            onLogout={handleLogout}
-          />
-        );
-        break;
-
-      case "manager":
-        content = (
-          <ManagerDashboard
-            user={user}
-            onLogout={handleLogout}
-          />
-        );
-        break;
-
-      case "coordinator":
-        content = (
-          <CoordinatorDashboard
-            user={user}
-            onLogout={handleLogout}
-          />
-        );
-        break;
-
-      case "designer":
-        content = (
-          <DesignerDashboard
-            user={user}
-            onLogout={handleLogout}
-          />
-        );
-        break;
-
-      case "presenter":
-        content = (
-          <Dashboard
-            user={user}
-            onLogout={handleLogout}
-          />
-        );
-        break;
-
-      default:
-        content = (
-          <Dashboard
-            user={user}
-            onLogout={handleLogout}
-          />
-        );
-        break;
-    }
-  }
-
-  return (
-    <>
-      <style>{globalStyles}</style>
-      <div className="App">
-        {content}
-      </div>
-    </>
-  );
 }
 
 export default App;

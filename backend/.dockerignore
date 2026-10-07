@@ -1,3 +1,10 @@
 node_modules
 npm-debug.log
 .env
+.env.*
+!.env.example
+backend_backup
+.git
+.gitignore
+Dockerfile
+docker-compose.yml

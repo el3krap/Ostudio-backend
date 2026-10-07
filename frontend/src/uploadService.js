@@ -1,30 +1,78 @@
-const CLOUD_NAME = "xc5fhsh3";
-const UPLOAD_PRESET = "ostudio_preset";
+// backend/config/firebaseAdmin.js
 
-export const uploadToCloudinary = async (file) => {
-  if (!file) return null;
+const admin = require('firebase-admin');
 
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", UPLOAD_PRESET);
 
-  // auto تتيح رفع الصور والفيديوهات والملفات (PDF وغيرها)
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`,
-    {
-      method: "POST",
-      body: formData,
-    }
-  );
+// ======================================================
+// Firebase Admin Configuration
+// ======================================================
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error?.message || "فشل رفع الملف إلى Cloudinary");
-  }
+const {
+    FIREBASE_PROJECT_ID,
+    FIREBASE_CLIENT_EMAIL,
+    FIREBASE_PRIVATE_KEY,
+} = process.env;
 
-  const data = await response.json();
-  return {
-    url: data.secure_url,
-    originalName: file.name
-  };
+
+// ======================================================
+// Validate Environment Variables
+// ======================================================
+
+const missingFirebaseConfig = [];
+
+if (!FIREBASE_PROJECT_ID) {
+    missingFirebaseConfig.push('FIREBASE_PROJECT_ID');
+}
+
+if (!FIREBASE_CLIENT_EMAIL) {
+    missingFirebaseConfig.push('FIREBASE_CLIENT_EMAIL');
+}
+
+if (!FIREBASE_PRIVATE_KEY) {
+    missingFirebaseConfig.push('FIREBASE_PRIVATE_KEY');
+}
+
+if (missingFirebaseConfig.length > 0) {
+    throw new Error(
+        `❌ Missing Firebase Admin configuration: ${missingFirebaseConfig.join(', ')}`
+    );
+}
+
+
+// ======================================================
+// Prepare Private Key
+// ======================================================
+
+const privateKey = FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+
+
+// ======================================================
+// Initialize Firebase Admin
+// ======================================================
+
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: FIREBASE_PROJECT_ID,
+            clientEmail: FIREBASE_CLIENT_EMAIL,
+            privateKey,
+        }),
+    });
+}
+
+
+// ======================================================
+// Firebase Admin Services
+// ======================================================
+
+const firebaseAdminAuth = admin.auth();
+
+
+// ======================================================
+// Exports
+// ======================================================
+
+module.exports = {
+    admin,
+    firebaseAdminAuth,
 };

@@ -1,20 +1,34 @@
 {
-  "name": "backend",
+  "name": "ostudio-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "OSTUDIO backend API - Firebase Authentication, MongoDB and role-based project management",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon server.js"
   },
-  "keywords": [],
+  "keywords": [
+    "ostudio",
+    "express",
+    "mongodb",
+    "mongoose",
+    "firebase",
+    "authentication",
+    "project-management"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "mongoose": "^9.9.4"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.0.2",
+    "mongoose": "^8.9.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
