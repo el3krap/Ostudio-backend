@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 
 const router = express.Router();
 
+const { firebaseAdminDb } = require('../config/firebaseAdmin');
 const User = require('../models/User');
 const Project = require('../models/Project');
 const Task = require('../models/Task');
@@ -429,102 +430,232 @@ router.put(
     '/users/:id/approve',
     async (req, res) => {
         try {
+            const { id } = req.params;
 
-            const {
-                id,
-            } = req.params;
-
-
-            if (!isValidObjectId(id)) {
+            if (!id || !String(id).trim()) {
                 return res.status(400).json({
                     success: false,
-                    message:
-                        'Invalid user ID.',
+                    message: 'User ID or Firebase UID is required.',
                 });
             }
 
+            const {
+                firebaseAdminDb,
+                FieldValue,
+            } = require('../config/firebaseAdmin');
 
-            const user =
-                await User.findById(id);
+            let user = null;
+            let firebaseUid = null;
 
+            // 1. Resolve MongoDB ObjectId or Firebase UID.
+            if (mongoose.Types.ObjectId.isValid(id)) {
+                user = await User.findById(id);
+            }
 
-            if (!user) {
+            if (user) {
+                firebaseUid = user.firebaseUid || null;
+            } else {
+                firebaseUid = id;
+
+                user = await User.findOne({
+                    firebaseUid,
+                });
+            }
+
+            // 2. Load the signup request from Firestore.
+            let signupRequestRef = null;
+            let signupRequestData = null;
+
+            if (firebaseUid) {
+                signupRequestRef = firebaseAdminDb
+                    .collection('signupRequests')
+                    .doc(firebaseUid);
+
+                const requestSnapshot =
+                    await signupRequestRef.get();
+
+                if (requestSnapshot.exists) {
+                    signupRequestData = requestSnapshot.data();
+                }
+            }
+
+            // 3. Resolve account details.
+            if (!user && !signupRequestData) {
                 return res.status(404).json({
                     success: false,
                     message:
-                        'User not found.',
+                        'No matching MongoDB user or Firebase signup request was found.',
                 });
             }
 
+            const email = String(
+                signupRequestData?.email || user?.email || ''
+            ).trim().toLowerCase();
 
-            user.status = 'active';
+            const name = String(
+                signupRequestData?.name ||
+                signupRequestData?.displayName ||
+                user?.name ||
+                email.split('@')[0] ||
+                'User'
+            ).trim();
 
-            await user.save();
+            const allowedRoles = [
+                'manager',
+                'account_manager',
+                'coordinator',
+                'designer',
+            ];
 
+            const role = String(
+                signupRequestData?.role || user?.role || ''
+            ).trim();
 
-            // --------------------------------------------------
-            // Account Approved Notification
-            // --------------------------------------------------
+            if (!email || !allowedRoles.includes(role)) {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        'The signup request has an invalid email or role.',
+                });
+            }
 
+            if (
+                signupRequestData?.status &&
+                signupRequestData.status !== 'pending' &&
+                !['active', 'approved'].includes(
+                    signupRequestData.status
+                )
+            ) {
+                return res.status(409).json({
+                    success: false,
+                    message:
+                        'This signup request cannot be approved in its current state.',
+                });
+            }
+
+            // 4. Find the MongoDB identity bridge by email if needed.
+            if (!user) {
+                user = await User.findOne({ email });
+            }
+
+            // 5. Create or update the MongoDB identity bridge.
+            if (user) {
+                if (
+                    user.firebaseUid &&
+                    firebaseUid &&
+                    user.firebaseUid !== firebaseUid
+                ) {
+                    return res.status(409).json({
+                        success: false,
+                        message:
+                            'This email is linked to another Firebase account.',
+                    });
+                }
+
+                user.name = name;
+                user.email = email;
+                user.role = role;
+                user.status = 'active';
+
+                if (firebaseUid) {
+                    user.firebaseUid = firebaseUid;
+                }
+
+                await user.save();
+            } else {
+                user = await User.create({
+                    name,
+                    email,
+                    role,
+                    status: 'active',
+                    firebaseUid,
+                });
+            }
+
+            // 6. Update the authoritative Firestore account.
+            if (firebaseUid) {
+                await firebaseAdminDb
+                    .collection('users')
+                    .doc(firebaseUid)
+                    .set(
+                        {
+                            uid: firebaseUid,
+                            name,
+                            email,
+                            role,
+                            status: 'active',
+                            updatedAt:
+                                FieldValue.serverTimestamp(),
+                        },
+                        { merge: true }
+                    );
+
+                if (signupRequestRef && signupRequestData) {
+                    await signupRequestRef.set(
+                        {
+                            status: 'approved',
+                            approvedAt:
+                                FieldValue.serverTimestamp(),
+                            approvedBy:
+                                req.user?.firebaseUid ||
+                                String(req.user?.mongoId || ''),
+                        },
+                        { merge: true }
+                    );
+                }
+            }
+
+            // 7. Preserve the existing MongoDB notification.
             try {
-
                 await Notification.create({
                     recipient: user._id,
-
-                    sender:
-                        req.user.mongoId,
-
-                    type:
-                        'account-approved',
-
-                    title:
-                        'تمت الموافقة على الحساب',
-
+                    sender: req.user.mongoId,
+                    type: 'account-approved',
+                    title: 'تمت الموافقة على الحساب',
                     message:
                         'تمت الموافقة على طلب حسابك ويمكنك الآن تسجيل الدخول.',
-
-                    link:
-                        '/login',
-
-                    isRead:
-                        false,
+                    link: '/login',
+                    isRead: false,
                 });
-
             } catch (notificationError) {
-
                 console.error(
-                    '⚠️ Account approval notification error:',
+                    'Account approval notification error:',
                     notificationError.message
                 );
             }
 
-
-            const safeUser =
-                await User.findById(id)
-                    .select('-password');
-
+            // 8. Return the safe MongoDB user.
+            const safeUser = await User.findById(user._id)
+                .select('-password')
+                .lean();
 
             return res.status(200).json({
                 success: true,
-                message:
-                    'User approved successfully.',
-                user:
-                    safeUser,
-                data:
-                    safeUser,
+                message: 'User approved successfully.',
+                user: safeUser,
+                data: safeUser,
             });
-
         } catch (error) {
-
             console.error(
-                '❌ Admin approve user error:',
+                'Admin approve user error:',
                 error
             );
 
+            if (error.code === 11000) {
+                return res.status(409).json({
+                    success: false,
+                    message:
+                        'A user with this email or Firebase UID already exists.',
+                });
+            }
+
             return res.status(500).json({
                 success: false,
-                message:
-                    'Failed to approve user.',
+                message: 'Failed to approve user.',
+                error:
+                    process.env.NODE_ENV === 'development'
+                        ? error.message
+                        : undefined,
             });
         }
     }

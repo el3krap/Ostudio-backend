@@ -1,3 +1,4 @@
+
 import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
@@ -6,41 +7,20 @@ import {
     onAuthStateChanged
 } from 'firebase/auth';
 
-import { auth } from '../firebase';
+import {
+    doc,
+    getDoc,
+    setDoc,
+    serverTimestamp
+} from 'firebase/firestore';
 
-/* =========================================================
-   Configuration
-========================================================= */
+import { auth, db } from '../firebase';
 
-const API_BASE_URL =
-    import.meta.env.VITE_API_URL ||
-    'http://localhost:8080/api';
+// ======================================================
+// Configuration
+// ======================================================
 
 const SESSION_KEY = 'ostudio_user';
-
-/*
- * Roles allowed to request an account through public Signup.
- *
- * IMPORTANT:
- * - manager is allowed
- * - account_manager is allowed
- * - coordinator is allowed
- * - designer is allowed
- * - admin is NOT allowed
- *
- * Admin account will be created manually.
- */
-
-const REQUESTABLE_ROLES = [
-    'manager',
-    'account_manager',
-    'coordinator',
-    'designer'
-];
-
-/*
- * All roles that can exist inside Ostudio.
- */
 
 const VALID_ROLES = [
     'admin',
@@ -50,198 +30,65 @@ const VALID_ROLES = [
     'designer'
 ];
 
-const ACTIVE_STATUSES = [
-    'active',
-    'approved'
+const REQUESTABLE_ROLES = [
+    'manager',
+    'account_manager',
+    'coordinator',
+    'designer'
 ];
 
-/* =========================================================
-   Basic API Request
-========================================================= */
+const ACTIVE_STATUSES = ['active', 'approved'];
 
-async function backendRequest(
-    endpoint,
-    options = {}
-) {
-    const response = await fetch(
-        `${API_BASE_URL}${endpoint}`,
-        {
-            ...options,
+// ======================================================
+// Firebase ID Token
+// ======================================================
 
-            headers: {
-                'Content-Type':
-                    'application/json',
+async function getFirebaseIdToken(forceRefresh = false) {
+    const firebaseUser = auth.currentUser;
 
-                ...(options.headers || {})
-            }
-        }
-    );
-
-    let data = null;
-
-    try {
-        data = await response.json();
-    } catch {
-        data = null;
-    }
-
-    if (!response.ok) {
-        const message =
-            data?.message ||
-            data?.error ||
-            `Request failed with status ${response.status}`;
-
-        throw new Error(message);
-    }
-
-    return data;
-}
-
-/* =========================================================
-   Firebase Token
-========================================================= */
-
-async function getFirebaseIdToken(
-    forceRefresh = false
-) {
-    const currentUser =
-        auth.currentUser;
-
-    if (!currentUser) {
-        throw new Error(
-            'لا يوجد مستخدم مسجل الدخول.'
-        );
-    }
-
-    return currentUser.getIdToken(
-        forceRefresh
-    );
-}
-
-/* =========================================================
-   Sync Firebase User With Ostudio Backend
-========================================================= */
-
-async function syncUserWithBackend({
-    firebaseUser,
-    requestedRole = null
-}) {
     if (!firebaseUser) {
-        throw new Error(
-            'Firebase user is required.'
-        );
+        throw new Error('لا يوجد مستخدم مسجل الدخول.');
     }
 
-    const idToken =
-        await firebaseUser.getIdToken(true);
-
-    const payload = {
-        firebaseUid:
-            firebaseUser.uid,
-
-        name:
-            firebaseUser.displayName ||
-            firebaseUser.email?.split('@')[0] ||
-            'Ostudio User',
-
-        email:
-            firebaseUser.email || '',
-
-        requestedRole
-    };
-
-    const result =
-        await backendRequest(
-            '/auth/sync-user',
-            {
-                method: 'POST',
-
-                headers: {
-                    Authorization:
-                        `Bearer ${idToken}`
-                },
-
-                body:
-                    JSON.stringify(payload)
-            }
-        );
-
-    return result;
+    return firebaseUser.getIdToken(forceRefresh);
 }
 
-/* =========================================================
-   Normalize Backend User
-========================================================= */
+// ======================================================
+// Normalize User
+// ======================================================
 
-function normalizeUser(
-    user = {}
-) {
-    const normalizedRole =
-        String(
-            user.role || ''
-        ).trim();
+function normalizeUser(user = {}) {
+    const role = String(user.role || '').trim().toLowerCase();
+
+    const uid =
+        user.uid ||
+        user.firebaseUid ||
+        user.id ||
+        user._id ||
+        null;
 
     return {
         ...user,
-
-        _id:
-            user._id ||
-            user.mongoId ||
-            user.id ||
-            null,
-
-        mongoId:
-            user.mongoId ||
-            user._id ||
-            user.id ||
-            null,
-
-        id:
-            user._id ||
-            user.mongoId ||
-            user.id ||
-            user.firebaseUid ||
-            user.uid ||
-            null,
-
-        uid:
-            user.firebaseUid ||
-            user.uid ||
-            null,
-
-        firebaseUid:
-            user.firebaseUid ||
-            user.uid ||
-            null,
-
-        name:
-            user.name ||
-            'Ostudio User',
-
-        email:
-            user.email ||
-            '',
-
-        role:
-            VALID_ROLES.includes(
-                normalizedRole
-            )
-                ? normalizedRole
-                : null,
-
-        status:
-            user.status ||
-            'pending'
+        id: uid,
+        _id: uid,
+        uid,
+        firebaseUid: uid,
+        mongoId: null,
+        name: user.name || 'Ostudio User',
+        email: String(user.email || '').trim().toLowerCase(),
+        role: VALID_ROLES.includes(role) ? role : null,
+        status: user.status || 'pending'
     };
 }
 
-/* =========================================================
-   Store Session
-========================================================= */
+// ======================================================
+// Store Session
+// localStorage is for UI convenience only.
+// It is NOT an authorization source.
+// ======================================================
 
 function storeSession(user) {
-    const normalizedUser =
-        normalizeUser(user);
+    const normalizedUser = normalizeUser(user);
 
     localStorage.setItem(
         SESSION_KEY,
@@ -251,238 +98,148 @@ function storeSession(user) {
     return normalizedUser;
 }
 
-/* =========================================================
-   Get Stored Session
-========================================================= */
-
 function getStoredUser() {
     try {
-        const storedUser =
-            localStorage.getItem(
-                SESSION_KEY
-            );
+        const stored = localStorage.getItem(SESSION_KEY);
 
-        if (!storedUser) {
+        if (!stored) {
             return null;
         }
 
-        const parsedUser =
-            JSON.parse(storedUser);
-
-        return normalizeUser(
-            parsedUser
-        );
-
+        return normalizeUser(JSON.parse(stored));
     } catch (error) {
-        console.error(
-            '❌ Failed to read Ostudio session:',
-            error
-        );
-
-        localStorage.removeItem(
-            SESSION_KEY
-        );
-
+        console.error('Failed to read OStudio session:', error);
+        localStorage.removeItem(SESSION_KEY);
         return null;
     }
 }
 
-/* =========================================================
-   Clear Session
-========================================================= */
-
 function clearStoredSession() {
-    localStorage.removeItem(
-        SESSION_KEY
-    );
-
-    // Remove old session key
-    // for backward compatibility.
-    localStorage.removeItem(
-        'ostudioUser'
-    );
-
-    // Remove old project/session keys.
-    localStorage.removeItem(
-        'ostudio_active_project'
-    );
-
-    localStorage.removeItem(
-        'ostudio_coord_active_proj'
-    );
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem('ostudioUser');
+    localStorage.removeItem('ostudio_active_project');
+    localStorage.removeItem('ostudio_coord_active_proj');
 }
 
-/* =========================================================
-   Validate Role
-========================================================= */
+// ======================================================
+// Validate Role and Account Status
+// ======================================================
 
 function validateRole(role) {
-    const normalizedRole =
-        String(role || '')
-            .trim()
-            .toLowerCase();
+    const normalizedRole = String(role || '').trim().toLowerCase();
 
-    if (
-        !VALID_ROLES.includes(
-            normalizedRole
-        )
-    ) {
-        throw new Error(
-            'نوع الحساب غير صالح أو غير معروف.'
-        );
+    if (!VALID_ROLES.includes(normalizedRole)) {
+        throw new Error('نوع الحساب غير صالح أو غير معروف.');
     }
 
     return normalizedRole;
 }
 
-/* =========================================================
-   Validate Active Account
-========================================================= */
-
-function validateActiveStatus(
-    status
-) {
-    if (
-        !ACTIVE_STATUSES.includes(
-            status
-        )
-    ) {
+function validateActiveStatus(status) {
+    if (!ACTIVE_STATUSES.includes(status)) {
         throw new Error(
             'الحساب غير مفعل أو لم تتم الموافقة عليه بعد.'
         );
     }
 }
 
-/* =========================================================
-   Login
-========================================================= */
+// ======================================================
+// Get User Profile from Firestore
+// Document ID must equal Firebase Authentication UID.
+// ======================================================
 
-async function loginUser(
-    email,
-    password
-) {
-    const normalizedEmail =
-        String(email || '')
-            .trim()
-            .toLowerCase();
+async function getUserProfile(firebaseUser) {
+    if (!firebaseUser?.uid) {
+        throw new Error('تعذر تحديد هوية مستخدم Firebase.');
+    }
 
-    if (!normalizedEmail) {
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const userSnapshot = await getDoc(userRef);
+
+    if (!userSnapshot.exists()) {
         throw new Error(
-            'من فضلك أدخل البريد الإلكتروني.'
+            'الحساب موجود في Firebase Authentication، لكن ملف المستخدم غير موجود في Firestore.'
         );
     }
 
+    const profile = userSnapshot.data();
+
+    // Prevent a mismatched UID from being accepted.
+    if (
+        profile.uid &&
+        profile.uid !== firebaseUser.uid
+    ) {
+        throw new Error('معرّف المستخدم لا يتطابق مع ملف الحساب.');
+    }
+
+    if (
+        profile.email &&
+        profile.email.toLowerCase() !==
+            (firebaseUser.email || '').toLowerCase()
+    ) {
+        throw new Error('البريد الإلكتروني لا يتطابق مع ملف المستخدم.');
+    }
+
+    const user = normalizeUser({
+        ...profile,
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || profile.email,
+        name:
+            profile.name ||
+            firebaseUser.displayName ||
+            'Ostudio User'
+    });
+
+    validateRole(user.role);
+    validateActiveStatus(user.status);
+
+    return user;
+}
+
+// ======================================================
+// Login - Firebase Authentication + Firestore
+// ======================================================
+
+async function loginUser(email, password) {
+    const normalizedEmail = String(email || '')
+        .trim()
+        .toLowerCase();
+
+    if (!normalizedEmail) {
+        throw new Error('من فضلك أدخل البريد الإلكتروني.');
+    }
+
     if (!password) {
-        throw new Error(
-            'من فضلك أدخل كلمة المرور.'
-        );
+        throw new Error('من فضلك أدخل كلمة المرور.');
     }
 
     let firebaseUser = null;
 
     try {
-        /*
-         * Firebase verifies email/password.
-         */
-
-        const credential =
-            await signInWithEmailAndPassword(
-                auth,
-                normalizedEmail,
-                password
-            );
-
-        firebaseUser =
-            credential.user;
-
-        /*
-         * IMPORTANT:
-         *
-         * We do NOT trust a role coming
-         * from the Login page.
-         *
-         * Firebase verifies credentials.
-         *
-         * Backend identifies Firebase UID
-         * and gets actual Ostudio role
-         * from MongoDB.
-         */
-
-        const backendResponse =
-            await syncUserWithBackend({
-                firebaseUser
-            });
-
-        const backendUser =
-            backendResponse?.user ||
-            backendResponse?.data?.user ||
-            backendResponse?.data ||
-            backendResponse;
-
-        const user =
-            normalizeUser(
-                backendUser
-            );
-
-        if (!user.role) {
-            throw new Error(
-                'لم يتم العثور على نوع الحساب الخاص بك.'
-            );
-        }
-
-        validateRole(
-            user.role
+        const credential = await signInWithEmailAndPassword(
+            auth,
+            normalizedEmail,
+            password
         );
 
-        validateActiveStatus(
-            user.status
-        );
+        firebaseUser = credential.user;
 
-        /*
-         * Make sure Firebase account
-         * and backend account belong
-         * to the same user.
-         */
+        // Read the actual role and status from Firestore.
+        const user = await getUserProfile(firebaseUser);
 
-        if (
-            user.firebaseUid &&
-            user.firebaseUid !==
-                firebaseUser.uid
-        ) {
-            throw new Error(
-                'بيانات الحساب غير متطابقة.'
-            );
-        }
-
-        const sessionUser =
-            storeSession({
-                ...user,
-
-                firebaseUid:
-                    firebaseUser.uid,
-
-                uid:
-                    firebaseUser.uid
-            });
-
-        return sessionUser;
-
+        return storeSession({
+            ...user,
+            uid: firebaseUser.uid,
+            firebaseUid: firebaseUser.uid,
+            email: firebaseUser.email || normalizedEmail
+        });
     } catch (error) {
-
-        /*
-         * If backend authentication/profile
-         * validation fails after Firebase login,
-         * sign out immediately.
-         */
-
         if (firebaseUser) {
             try {
                 await signOut(auth);
-            } catch (
-                signOutError
-            ) {
+            } catch (signOutError) {
                 console.error(
-                    '❌ Firebase sign-out after failed login:',
+                    'Firebase sign-out after failed login:',
                     signOutError
                 );
             }
@@ -490,75 +247,51 @@ async function loginUser(
 
         clearStoredSession();
 
-        console.error(
-            '❌ Login Error:',
-            error
-        );
+        console.error('OStudio login failed:', error);
 
         throw new Error(
-            error?.message ||
-            'فشل تسجيل الدخول. حاول مرة أخرى.'
+            error?.message || 'فشل تسجيل الدخول. حاول مرة أخرى.'
         );
     }
 }
 
-/* =========================================================
-   Signup Request
-========================================================= */
+// ======================================================
+// Signup Request
+//
+// 1. Create Firebase Authentication account.
+// 2. Create signupRequests/{uid} in Firestore.
+// 3. Do not create an active user profile here.
+// 4. Do not allow public Admin registration.
+// ======================================================
 
-async function registerUser({
-    name,
-    email,
-    password,
-    role
-}) {
-    const normalizedName =
-        String(name || '').trim();
+async function registerUser({ name, email, password, role }) {
+    const normalizedName = String(name || '').trim();
 
-    const normalizedEmail =
-        String(email || '')
-            .trim()
-            .toLowerCase();
+    const normalizedEmail = String(email || '')
+        .trim()
+        .toLowerCase();
 
-    const normalizedRole =
-        String(role || '')
-            .trim()
-            .toLowerCase();
+    const normalizedRole = String(role || '')
+        .trim()
+        .toLowerCase();
 
     if (!normalizedName) {
-        throw new Error(
-            'من فضلك أدخل الاسم.'
-        );
+        throw new Error('من فضلك أدخل الاسم.');
     }
 
     if (!normalizedEmail) {
-        throw new Error(
-            'من فضلك أدخل البريد الإلكتروني.'
-        );
+        throw new Error('من فضلك أدخل البريد الإلكتروني.');
     }
 
     if (!password) {
-        throw new Error(
-            'من فضلك أدخل كلمة المرور.'
-        );
+        throw new Error('من فضلك أدخل كلمة المرور.');
     }
 
-    /*
-     * Public Signup roles:
-     *
-     * manager
-     * account_manager
-     * coordinator
-     * designer
-     *
-     * Admin is intentionally excluded.
-     */
+    if (password.length < 6) {
+        throw new Error('كلمة المرور يجب أن تكون 6 أحرف على الأقل.');
+    }
 
-    if (
-        !REQUESTABLE_ROLES.includes(
-            normalizedRole
-        )
-    ) {
+    if (!REQUESTABLE_ROLES.includes(normalizedRole)) {
         throw new Error(
             'نوع الحساب المطلوب غير مسموح بالتسجيل العام.'
         );
@@ -567,126 +300,53 @@ async function registerUser({
     let firebaseUser = null;
 
     try {
-        /*
-         * Create Firebase Authentication account.
-         */
-
-        const credential =
-            await createUserWithEmailAndPassword(
-                auth,
-                normalizedEmail,
-                password
-            );
-
-        firebaseUser =
-            credential.user;
-
-        /*
-         * Save display name
-         * in Firebase profile.
-         */
-
-        await updateProfile(
-            firebaseUser,
-            {
-                displayName:
-                    normalizedName
-            }
+        const credential = await createUserWithEmailAndPassword(
+            auth,
+            normalizedEmail,
+            password
         );
 
-        /*
-         * Get Firebase token after
-         * creating the account.
-         */
+        firebaseUser = credential.user;
 
-        const idToken =
-            await firebaseUser.getIdToken(
-                true
-            );
+        await updateProfile(firebaseUser, {
+            displayName: normalizedName
+        });
 
-        /*
-         * Send signup request
-         * to Ostudio Backend.
-         *
-         * Backend creates MongoDB
-         * account as pending.
-         */
+        // The signupRequests rules must require:
+        // requestId == request.auth.uid
+        // data.uid == request.auth.uid
+        // status == 'pending'
+        // role is a public, non-admin role.
+        const requestRef = doc(
+            db,
+            'signupRequests',
+            firebaseUser.uid
+        );
 
-        const response =
-            await backendRequest(
-                '/auth/signup-request',
-                {
-                    method: 'POST',
-
-                    headers: {
-                        Authorization:
-                            `Bearer ${idToken}`
-                    },
-
-                    body:
-                        JSON.stringify({
-                            name:
-                                normalizedName,
-
-                            email:
-                                normalizedEmail,
-
-                            requestedRole:
-                                normalizedRole,
-
-                            firebaseUid:
-                                firebaseUser.uid
-                        })
-                }
-            );
-
-        /*
-         * Signup is a request.
-         *
-         * User should NOT automatically
-         * enter a dashboard.
-         */
+        await setDoc(requestRef, {
+            uid: firebaseUser.uid,
+            name: normalizedName,
+            email: normalizedEmail,
+            role: normalizedRole,
+            status: 'pending',
+            createdAt: serverTimestamp()
+        });
 
         await signOut(auth);
-
         clearStoredSession();
 
         return {
             success: true,
-
             message:
-                response?.message ||
-                'تم إرسال طلب إنشاء الحساب بنجاح. انتظر موافقة الإدارة.',
-
-            user:
-                response?.user ||
-                null
+                'تم إرسال طلب إنشاء الحساب بنجاح. انتظر موافقة الإدارة.'
         };
-
     } catch (error) {
-
-        console.error(
-            '❌ Signup Error:',
-            error
-        );
-
-        /*
-         * If Firebase account was created
-         * but backend request failed,
-         * sign out.
-         *
-         * We intentionally do NOT delete
-         * the Firebase account automatically.
-         */
-
         if (firebaseUser) {
             try {
                 await signOut(auth);
-            } catch (
-                signOutError
-            ) {
+            } catch (signOutError) {
                 console.error(
-                    '❌ Firebase sign-out after signup error:',
+                    'Firebase sign-out after signup error:',
                     signOutError
                 );
             }
@@ -694,180 +354,175 @@ async function registerUser({
 
         clearStoredSession();
 
+        console.error('OStudio signup failed:', error);
+
+        // If the Authentication account was created but the
+        // Firestore write failed, the Auth account may remain.
+        // Do not silently delete the account automatically.
         throw new Error(
             error?.message ||
-            'فشل إرسال طلب إنشاء الحساب.'
+                'تعذر إرسال طلب الحساب. تحقق من إعدادات Firestore.'
         );
     }
 }
 
-/* =========================================================
-   Logout
-========================================================= */
+// ======================================================
+// Logout
+// ======================================================
 
 async function logoutUser() {
     try {
         await signOut(auth);
-
     } catch (error) {
-        console.error(
-            '❌ Firebase Logout Error:',
-            error
-        );
-
+        console.error('Firebase logout failed:', error);
         throw error;
-
     } finally {
         clearStoredSession();
     }
 }
 
-/* =========================================================
-   Current Firebase User
-========================================================= */
+// ======================================================
+// Current User Helpers
+// ======================================================
 
 function getCurrentFirebaseUser() {
     return auth.currentUser || null;
 }
 
-/* =========================================================
-   Current Stored Ostudio User
-========================================================= */
-
 function getCurrentUser() {
     return getStoredUser();
 }
 
-/* =========================================================
-   Check Authentication
-========================================================= */
-
 function isAuthenticated() {
-    const firebaseUser =
-        auth.currentUser;
-
-    const storedUser =
-        getStoredUser();
+    const firebaseUser = auth.currentUser;
+    const storedUser = getStoredUser();
 
     return Boolean(
         firebaseUser &&
         storedUser &&
+        storedUser.uid === firebaseUser.uid &&
         storedUser.role &&
-        ACTIVE_STATUSES.includes(
-            storedUser.status
-        )
+        ACTIVE_STATUSES.includes(storedUser.status)
     );
 }
 
-/* =========================================================
-   Get Current ID Token
-========================================================= */
-
-async function getCurrentIdToken(
-    forceRefresh = false
-) {
-    return getFirebaseIdToken(
-        forceRefresh
-    );
+async function getCurrentIdToken(forceRefresh = false) {
+    return getFirebaseIdToken(forceRefresh);
 }
 
-/* =========================================================
-   Firebase Auth State Listener
-========================================================= */
+// ======================================================
+// Refresh Current Profile from Firestore
+// Use this when the UI needs current role/status data.
+// ======================================================
 
-function subscribeToAuthState(
-    callback
-) {
-    return onAuthStateChanged(
-        auth,
-        callback
-    );
+async function refreshCurrentUser() {
+    const firebaseUser = auth.currentUser;
+
+    if (!firebaseUser) {
+        clearStoredSession();
+        return null;
+    }
+
+    try {
+        const user = await getUserProfile(firebaseUser);
+        return storeSession(user);
+    } catch (error) {
+        clearStoredSession();
+        throw error;
+    }
 }
 
-/* =========================================================
-   Role Helpers
-========================================================= */
+// ======================================================
+// Firebase Auth State Listener
+// ======================================================
 
-function isAdmin(
-    user = getStoredUser()
-) {
+function subscribeToAuthState(callback) {
+    return onAuthStateChanged(auth, callback);
+}
+
+// ======================================================
+// Role Helpers
+// These helpers are for UI rendering only.
+// Firestore Security Rules must enforce permissions.
+// ======================================================
+
+function isAdmin(user = getStoredUser()) {
     return user?.role === 'admin';
 }
 
-function isManager(
-    user = getStoredUser()
-) {
+function isManager(user = getStoredUser()) {
     return user?.role === 'manager';
 }
 
-function isAccountManager(
-    user = getStoredUser()
-) {
-    return (
-        user?.role ===
-        'account_manager'
+function isAccountManager(user = getStoredUser()) {
+    return user?.role === 'account_manager';
+}
+
+function isCoordinator(user = getStoredUser()) {
+    return user?.role === 'coordinator';
+}
+
+function isDesigner(user = getStoredUser()) {
+    return user?.role === 'designer';
+}
+
+// ======================================================
+// Legacy compatibility
+//
+// These exports are retained so older imports do not fail
+// immediately. They do not call MongoDB or the backend.
+// Migrate any service still using backendRequest separately.
+// ======================================================
+
+async function backendRequest() {
+    throw new Error(
+        'backendRequest لم يعد مستخدمًا في المصادقة. انقل هذه العملية إلى Firebase.'
     );
 }
 
-function isCoordinator(
-    user = getStoredUser()
-) {
-    return user?.role ===
-        'coordinator';
+async function syncUserWithBackend() {
+    throw new Error(
+        'syncUserWithBackend تم إيقافه. بيانات المستخدم تُقرأ من Firestore.'
+    );
 }
 
-function isDesigner(
-    user = getStoredUser()
-) {
-    return user?.role ===
-        'designer';
-}
-
-/* =========================================================
-   Export
-========================================================= */
+// ======================================================
+// Exports
+// ======================================================
 
 export {
     backendRequest,
-
     getFirebaseIdToken,
     getCurrentIdToken,
-
     syncUserWithBackend,
-
     loginUser,
     registerUser,
     logoutUser,
-
     getCurrentFirebaseUser,
     getCurrentUser,
-
     storeSession,
     getStoredUser,
     clearStoredSession,
-
     isAuthenticated,
-
     subscribeToAuthState,
-
     isAdmin,
     isManager,
     isAccountManager,
     isCoordinator,
     isDesigner,
-
-    normalizeUser
+    normalizeUser,
+    getUserProfile,
+    refreshCurrentUser
 };
 
 export default {
     loginUser,
     registerUser,
     logoutUser,
-
     getCurrentUser,
     getCurrentFirebaseUser,
     getCurrentIdToken,
-
     isAuthenticated,
-    subscribeToAuthState
+    subscribeToAuthState,
+    refreshCurrentUser
 };

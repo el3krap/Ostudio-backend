@@ -1,608 +1,1202 @@
-import { auth } from '../firebase';
-
-/* =========================================================
-   API Configuration
-========================================================= */
-
-const API_BASE_URL =
-    import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 
 
-/* =========================================================
-   Authentication Token
-========================================================= */
+import { auth, db } from '../firebase';
 
-async function getAuthToken() {
-    const currentUser = auth.currentUser;
+import { onAuthStateChanged } from 'firebase/auth';
 
-    if (!currentUser) {
-        throw new Error('يجب تسجيل الدخول أولاً.');
-    }
+import {
 
-    return currentUser.getIdToken();
+    collection,
+
+    doc,
+
+    getDoc,
+
+    getDocs,
+
+    query,
+
+    where,
+
+    updateDoc,
+
+    deleteDoc,
+
+    serverTimestamp
+
+} from 'firebase/firestore';
+
+
+
+// ======================================================
+
+// Configuration
+
+// ======================================================
+
+
+
+const VALID_ROLES = [
+
+    'admin',
+
+    'manager',
+
+    'account_manager',
+
+    'coordinator',
+
+    'designer'
+
+];
+
+
+
+const PUBLIC_ROLES = [
+
+    'manager',
+
+    'account_manager',
+
+    'coordinator',
+
+    'designer'
+
+];
+
+
+
+const ACTIVE_STATUSES = ['active', 'approved'];
+
+
+
+// ======================================================
+
+// Firebase Authentication Readiness
+
+// ======================================================
+
+
+
+let authReadyPromise = null;
+
+
+
+function waitForFirebaseAuthReady() {
+
+    if (auth.currentUser) {
+
+        return Promise.resolve(auth.currentUser);
+
+    }
+
+
+
+    if (!authReadyPromise) {
+
+        authReadyPromise = new Promise((resolve, reject) => {
+
+            let unsubscribe = () => {};
+
+
+
+            unsubscribe = onAuthStateChanged(
+
+                auth,
+
+                (user) => {
+
+                    unsubscribe();
+
+                    resolve(user || null);
+
+                },
+
+                (error) => {
+
+                    unsubscribe();
+
+                    reject(error);
+
+                }
+
+            );
+
+        }).finally(() => {
+
+            authReadyPromise = null;
+
+        });
+
+    }
+
+
+
+    return authReadyPromise;
+
 }
 
 
-/* =========================================================
-   Admin API Request
-========================================================= */
 
-async function adminRequest(endpoint, options = {}) {
-    const token = await getAuthToken();
+async function requireSignedInUser() {
+
+    const user = auth.currentUser || await waitForFirebaseAuthReady();
+
+
+
+    if (!user) {
+
+        throw new Error(
+
+            'يجب تسجيل الدخول أولاً. سجّل الدخول ثم أعد المحاولة.'
+
+        );
+
+    }
+
+
+
+    return user;
+
+}
+
+
+
+// ======================================================
+
+// Admin Authorization
+
+// ======================================================
+
+
+
+async function requireAdmin() {
+
+    const firebaseUser = await requireSignedInUser();
+
+
+
+    const snapshot = await getDoc(
+
+        doc(db, 'users', firebaseUser.uid)
+
+    );
+
+
+
+    if (!snapshot.exists()) {
+
+        throw new Error('ملف المستخدم غير موجود في Firestore.');
+
+    }
+
+
+
+    const user = snapshot.data();
+
+
+
+    if (
+
+        user.role !== 'admin' ||
+
+        !ACTIVE_STATUSES.includes(user.status)
+
+    ) {
+
+        throw new Error('هذه العملية متاحة للأدمن فقط.');
+
+    }
+
+
+
+    return {
+
+        ...user,
+
+        uid: firebaseUser.uid,
+
+        id: firebaseUser.uid,
+
+        _id: firebaseUser.uid
+
+    };
+
+}
+
+
+
+// ======================================================
+
+// General Helpers
+
+// ======================================================
+
+
+
+function normalizeDocument(snapshot) {
+
+    return {
+
+        id: snapshot.id,
+
+        _id: snapshot.id,
+
+        ...snapshot.data()
+
+    };
+
+}
+
+
+
+function validateId(id, label = 'المستند') {
+
+    if (!id || typeof id !== 'string') {
+
+        throw new Error(`معرّف ${label} غير صالح.`);
+
+    }
+
+
+
+    return id;
+
+}
+
+
+
+function validateRole(role) {
+
+    if (!VALID_ROLES.includes(role)) {
+
+        throw new Error('نوع الحساب غير صالح.');
+
+    }
+
+
+
+    return role;
+
+}
+
+
+
+function validatePublicRole(role) {
+
+    if (!PUBLIC_ROLES.includes(role)) {
+
+        throw new Error('لا يمكن طلب هذا الدور من التسجيل العام.');
+
+    }
+
+
+
+    return role;
+
+}
+
+
+
+function validatePatch(data, forbiddenFields = []) {
+
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+
+        throw new Error('البيانات المرسلة غير صالحة.');
+
+    }
+
+
+
+    for (const field of forbiddenFields) {
+
+        if (Object.prototype.hasOwnProperty.call(data, field)) {
+
+            throw new Error(
+
+                `لا يمكن تعديل الحقل ${field} بهذه الطريقة.`
+
+            );
+
+        }
+
+    }
+
+
+
+    return data;
+
+}
+
+
+
+// ======================================================
+
+// Generic Firestore Operations
+
+// ======================================================
+
+
+
+async function getCollectionDocuments(collectionName) {
+
+    await requireAdmin();
+
+
+
+    const snapshot = await getDocs(
+
+        collection(db, collectionName)
+
+    );
+
+
+
+    return snapshot.docs.map(normalizeDocument);
+
+}
+
+
+
+async function getOneDocument(collectionName, id, label) {
+
+    await requireAdmin();
+
+
+
+    const validId = validateId(id, label);
+
+
+
+    const snapshot = await getDoc(
+
+        doc(db, collectionName, validId)
+
+    );
+
+
+
+    if (!snapshot.exists()) {
+
+        throw new Error(`${label} غير موجود.`);
+
+    }
+
+
+
+    return normalizeDocument(snapshot);
+
+}
+
+
+
+async function updateOneDocument(
+
+    collectionName,
+
+    id,
+
+    data,
+
+    label,
+
+    forbiddenFields = []
+
+) {
+
+    await requireAdmin();
+
+
+
+    const validId = validateId(id, label);
+
+    const patch = validatePatch(data, forbiddenFields);
+
+
+
+    const reference = doc(db, collectionName, validId);
+
+    const snapshot = await getDoc(reference);
+
+
+
+    if (!snapshot.exists()) {
+
+        throw new Error(`${label} غير موجود.`);
+
+    }
+
+
+
+    await updateDoc(reference, {
+
+        ...patch,
+
+        updatedAt: serverTimestamp()
+
+    });
+
+
+
+    const updated = await getDoc(reference);
+
+
+
+    return normalizeDocument(updated);
+
+}
+
+
+
+async function deleteOneDocument(collectionName, id, label) {
+
+    await requireAdmin();
+
+
+
+    const validId = validateId(id, label);
+
+    const reference = doc(db, collectionName, validId);
+
+    const snapshot = await getDoc(reference);
+
+
+
+    if (!snapshot.exists()) {
+
+        throw new Error(`${label} غير موجود.`);
+
+    }
+
+
+
+    await deleteDoc(reference);
+
+
+
+    return {
+
+        success: true,
+
+        id: validId
+
+    };
+
+}
+
+
+
+// ======================================================
+
+// Users
+
+// Collection: users
+
+// ======================================================
+
+
+
+async function getAllUsers() {
+
+    return getCollectionDocuments('users');
+
+}
+
+
+
+async function getUsers() {
+
+    return getAllUsers();
+
+}
+
+
+
+async function getUsersByRole(role) {
+
+    await requireAdmin();
+
+
+
+    const validRole = validateRole(role);
+
+
+
+    const snapshot = await getDocs(
+
+        query(
+
+            collection(db, 'users'),
+
+            where('role', '==', validRole)
+
+        )
+
+    );
+
+
+
+    return snapshot.docs.map(normalizeDocument);
+
+}
+
+
+
+async function getPendingUsers() {
+
+    await requireAdmin();
+
+
+
+    const snapshot = await getDocs(
+
+        query(
+
+            collection(db, 'signupRequests'),
+
+            where('status', '==', 'pending')
+
+        )
+
+    );
+
+
+
+    return snapshot.docs.map(normalizeDocument);
+
+}
+
+
+
+async function getUser(userId) {
+
+    return getOneDocument('users', userId, 'المستخدم');
+
+}
+
+
+
+// ======================================================
+
+// Signup Requests
+
+// ======================================================
+
+
+
+async function approveUser(userId, role = null) {
+    // Approval is performed by the trusted Express backend.
+    await requireAdmin();
+    const validId = validateId(userId, 'المستخدم');
+    const firebaseUser = auth.currentUser;
+
+    if (!firebaseUser) {
+        throw new Error('يجب تسجيل الدخول أولاً. سجّل الدخول ثم أعد المحاولة.');
+    }
+
+    const token = await firebaseUser.getIdToken();
+    const apiBaseUrl = String(
+        import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+    ).replace(/\/+$/, '');
 
     const response = await fetch(
-        `${API_BASE_URL}${endpoint}`,
+        `${apiBaseUrl}/admin/users/${encodeURIComponent(validId)}/approve`,
         {
-            ...options,
-
+            method: 'PUT',
             headers: {
                 Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                ...(options.headers || {})
-            }
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ role: role || undefined })
         }
     );
 
-    let data = null;
-
+    let result = null;
     try {
-        data = await response.json();
+        result = await response.json();
     } catch {
-        data = null;
+        // Keep a useful HTTP error if the server did not return JSON.
     }
 
-    if (!response.ok) {
+    if (!response.ok || result?.success === false) {
         throw new Error(
-            data?.message ||
-            data?.error ||
-            `فشل الطلب (${response.status})`
+            result?.message ||
+            result?.error ||
+            `فشلت الموافقة على الحساب (HTTP ${response.status}).`
         );
     }
 
-    return data;
+    return result?.user || result?.data || result;
 }
-
-
-/* =========================================================
-   Get All Users
-========================================================= */
-
-async function getAllUsers() {
-    const response = await adminRequest(
-        '/admin/users'
-    );
-
-    return (
-        response?.users ||
-        response?.data ||
-        response ||
-        []
-    );
-}
-
-
-/* =========================================================
-   Get Users By Role
-========================================================= */
-
-async function getUsersByRole(role) {
-    if (!role) {
-        throw new Error('نوع الحساب غير محدد.');
-    }
-
-    const response = await adminRequest(
-        `/admin/users?role=${encodeURIComponent(role)}`
-    );
-
-    return (
-        response?.users ||
-        response?.data ||
-        response ||
-        []
-    );
-}
-
-
-/* =========================================================
-   Get Pending Account Requests
-========================================================= */
-
-async function getPendingUsers() {
-    const response = await adminRequest(
-        '/admin/users/pending'
-    );
-
-    return (
-        response?.users ||
-        response?.pendingUsers ||
-        response?.data ||
-        response ||
-        []
-    );
-}
-
-
-/* =========================================================
-   Get One User
-========================================================= */
-
-async function getUser(userId) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
-
-    const response = await adminRequest(
-        `/admin/users/${userId}`
-    );
-
-    return (
-        response?.user ||
-        response?.data ||
-        response
-    );
-}
-
-
-/* =========================================================
-   Approve User
-========================================================= */
-
-async function approveUser(userId, role = null) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
-
-    const payload = {};
-
-    if (role) {
-        payload.role = role;
-    }
-
-    const response = await adminRequest(
-        `/admin/users/${userId}/approve`,
-        {
-            method: 'PUT',
-            body: JSON.stringify(payload)
-        }
-    );
-
-    return (
-        response?.user ||
-        response?.data ||
-        response
-    );
-}
-
-
-/* =========================================================
-   Reject User
-========================================================= */
 
 async function rejectUser(userId) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/users/${userId}/reject`,
-        {
-            method: 'PUT'
-        }
-    );
+    const admin = await requireAdmin();
 
-    return (
-        response?.user ||
-        response?.data ||
-        response
-    );
+
+
+    const validId = validateId(userId, 'المستخدم');
+
+    const requestRef = doc(db, 'signupRequests', validId);
+
+    const snapshot = await getDoc(requestRef);
+
+
+
+    if (!snapshot.exists()) {
+
+        throw new Error('طلب التسجيل غير موجود.');
+
+    }
+
+
+
+    if (snapshot.data().status !== 'pending') {
+
+        throw new Error('طلب التسجيل ليس في حالة انتظار.');
+
+    }
+
+
+
+    await updateDoc(requestRef, {
+
+        status: 'rejected',
+
+        reviewedAt: serverTimestamp(),
+
+        reviewedBy: admin.uid
+
+    });
+
+
+
+    return {
+
+        success: true,
+
+        id: validId,
+
+        status: 'rejected'
+
+    };
+
 }
 
 
-/* =========================================================
-   Update User
-========================================================= */
+
+// ======================================================
+
+// User Profile Management
+
+// ======================================================
+
+
 
 async function updateUser(userId, userData = {}) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/users/${userId}`,
-        {
-            method: 'PUT',
-            body: JSON.stringify(userData)
-        }
-    );
+    return updateOneDocument(
 
-    return (
-        response?.user ||
-        response?.data ||
-        response
-    );
+        'users',
+
+        userId,
+
+        userData,
+
+        'المستخدم',
+
+        ['uid', 'firebaseUid', 'role', 'status', 'password']
+
+    );
+
 }
 
 
-/* =========================================================
-   Change User Role
-========================================================= */
 
 async function changeUserRole(userId, role) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
 
-    if (!role) {
-        throw new Error('نوع الحساب غير محدد.');
-    }
+    const admin = await requireAdmin();
 
-    const response = await adminRequest(
-        `/admin/users/${userId}/role`,
-        {
-            method: 'PUT',
-            body: JSON.stringify({
-                role
-            })
-        }
-    );
 
-    return (
-        response?.user ||
-        response?.data ||
-        response
-    );
+
+    const validId = validateId(userId, 'المستخدم');
+
+    const validRole = validateRole(role);
+
+
+
+    if (validId === admin.uid && validRole !== 'admin') {
+
+        throw new Error(
+
+            'لا يمكن تغيير دور حساب الأدمن الحالي بهذه الطريقة.'
+
+        );
+
+    }
+
+
+
+    const reference = doc(db, 'users', validId);
+
+    const snapshot = await getDoc(reference);
+
+
+
+    if (!snapshot.exists()) {
+
+        throw new Error('المستخدم غير موجود.');
+
+    }
+
+
+
+    await updateDoc(reference, {
+
+        role: validRole,
+
+        updatedAt: serverTimestamp()
+
+    });
+
+
+
+    return getUser(validId);
+
 }
 
 
-/* =========================================================
-   Activate User
-========================================================= */
+
+async function updateUserRole(userId, role) {
+
+    return changeUserRole(userId, role);
+
+}
+
+
 
 async function activateUser(userId) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/users/${userId}/activate`,
-        {
-            method: 'PUT'
-        }
-    );
+    return updateOneDocument(
 
-    return (
-        response?.user ||
-        response?.data ||
-        response
-    );
+        'users',
+
+        userId,
+
+        { status: 'active' },
+
+        'المستخدم'
+
+    );
+
 }
 
 
-/* =========================================================
-   Deactivate User
-========================================================= */
 
 async function deactivateUser(userId) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/users/${userId}/deactivate`,
-        {
-            method: 'PUT'
-        }
-    );
+    const admin = await requireAdmin();
 
-    return (
-        response?.user ||
-        response?.data ||
-        response
-    );
+    const validId = validateId(userId, 'المستخدم');
+
+
+
+    if (admin.uid === validId) {
+
+        throw new Error('لا يمكن تعطيل حساب الأدمن الحالي.');
+
+    }
+
+
+
+    return updateOneDocument(
+
+        'users',
+
+        validId,
+
+        { status: 'inactive' },
+
+        'المستخدم'
+
+    );
+
 }
 
 
-/* =========================================================
-   Delete User
-========================================================= */
 
 async function deleteUser(userId) {
-    if (!userId) {
-        throw new Error('معرف المستخدم غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/users/${userId}`,
-        {
-            method: 'DELETE'
-        }
-    );
+    const admin = await requireAdmin();
 
-    return response;
+    const validId = validateId(userId, 'المستخدم');
+
+
+
+    if (admin.uid === validId) {
+
+        throw new Error('لا يمكن حذف حساب الأدمن الحالي.');
+
+    }
+
+
+
+    throw new Error(
+
+        'حذف المستخدم يحتاج Cloud Function لحذف حساب Firebase Authentication وملف Firestore معًا.'
+
+    );
+
 }
 
 
-/* =========================================================
-   Get All Projects
-========================================================= */
+
+// ======================================================
+
+// Projects
+
+// Collection: projects
+
+// ======================================================
+
+
 
 async function getAllProjects() {
-    const response = await adminRequest(
-        '/admin/projects'
-    );
 
-    return (
-        response?.projects ||
-        response?.data ||
-        response ||
-        []
-    );
+    return getCollectionDocuments('projects');
+
 }
 
 
-/* =========================================================
-   Get One Project
-========================================================= */
+
+async function getProjects() {
+
+    return getAllProjects();
+
+}
+
+
 
 async function getProject(projectId) {
-    if (!projectId) {
-        throw new Error('معرف المشروع غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/projects/${projectId}`
-    );
+    return getOneDocument('projects', projectId, 'المشروع');
 
-    return (
-        response?.project ||
-        response?.data ||
-        response
-    );
 }
 
 
-/* =========================================================
-   Update Project
-========================================================= */
 
 async function updateProject(projectId, projectData = {}) {
-    if (!projectId) {
-        throw new Error('معرف المشروع غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/projects/${projectId}`,
-        {
-            method: 'PUT',
-            body: JSON.stringify(projectData)
-        }
-    );
+    return updateOneDocument(
 
-    return (
-        response?.project ||
-        response?.data ||
-        response
-    );
+        'projects',
+
+        projectId,
+
+        projectData,
+
+        'المشروع',
+
+        ['createdBy', 'assignedDesigner', 'assignedPresenter']
+
+    );
+
 }
 
 
-/* =========================================================
-   Delete Project
-========================================================= */
 
 async function deleteProject(projectId) {
-    if (!projectId) {
-        throw new Error('معرف المشروع غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/projects/${projectId}`,
-        {
-            method: 'DELETE'
-        }
-    );
+    return deleteOneDocument('projects', projectId, 'المشروع');
 
-    return response;
 }
 
 
-/* =========================================================
-   Get All Tasks
-========================================================= */
+
+// ======================================================
+
+// Tasks
+
+// Collection: tasks
+
+// ======================================================
+
+
 
 async function getAllTasks() {
-    const response = await adminRequest(
-        '/admin/tasks'
-    );
 
-    return (
-        response?.tasks ||
-        response?.data ||
-        response ||
-        []
-    );
+    return getCollectionDocuments('tasks');
+
 }
 
 
-/* =========================================================
-   Get One Task
-========================================================= */
+
+async function getTasks() {
+
+    return getAllTasks();
+
+}
+
+
 
 async function getTask(taskId) {
-    if (!taskId) {
-        throw new Error('معرف المهمة غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/tasks/${taskId}`
-    );
+    return getOneDocument('tasks', taskId, 'المهمة');
 
-    return (
-        response?.task ||
-        response?.data ||
-        response
-    );
 }
 
 
-/* =========================================================
-   Update Task
-========================================================= */
 
 async function updateTask(taskId, taskData = {}) {
-    if (!taskId) {
-        throw new Error('معرف المهمة غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/tasks/${taskId}`,
-        {
-            method: 'PUT',
-            body: JSON.stringify(taskData)
-        }
-    );
+    return updateOneDocument(
 
-    return (
-        response?.task ||
-        response?.data ||
-        response
-    );
+        'tasks',
+
+        taskId,
+
+        taskData,
+
+        'المهمة',
+
+        ['createdBy']
+
+    );
+
 }
 
 
-/* =========================================================
-   Delete Task
-========================================================= */
 
 async function deleteTask(taskId) {
-    if (!taskId) {
-        throw new Error('معرف المهمة غير موجود.');
-    }
 
-    const response = await adminRequest(
-        `/admin/tasks/${taskId}`,
-        {
-            method: 'DELETE'
-        }
-    );
+    return deleteOneDocument('tasks', taskId, 'المهمة');
 
-    return response;
 }
 
 
-/* =========================================================
-   Admin Dashboard Statistics
-========================================================= */
+
+// ======================================================
+
+// Dashboard Statistics
+
+// ======================================================
+
+
 
 async function getAdminDashboardData() {
-    const response = await adminRequest(
-        '/admin/dashboard'
-    );
 
-    return (
-        response?.data ||
-        response ||
-        {}
-    );
+    await requireAdmin();
+
+
+
+    const [users, projects, tasks] = await Promise.all([
+
+        getAllUsers(),
+
+        getAllProjects(),
+
+        getAllTasks()
+
+    ]);
+
+
+
+    const completedProjects = projects.filter(
+
+        (project) => project.status === 'completed'
+
+    ).length;
+
+
+
+    const completedTasks = tasks.filter(
+
+        (task) => task.status === 'completed'
+
+    ).length;
+
+
+
+    return {
+
+        totalUsers: users.length,
+
+        totalProjects: projects.length,
+
+        totalTasks: tasks.length,
+
+        completedProjects,
+
+        completedTasks,
+
+        pendingUsers: users.filter(
+
+            (user) => user.status === 'pending'
+
+        ).length,
+
+        activeUsers: users.filter(
+
+            (user) => ACTIVE_STATUSES.includes(user.status)
+
+        ).length,
+
+        designers: users.filter(
+
+            (user) => user.role === 'designer'
+
+        ).length,
+
+        coordinators: users.filter(
+
+            (user) => user.role === 'coordinator'
+
+        ).length
+
+    };
+
 }
 
 
-/* =========================================================
-   Backward-Compatible Aliases
-   Used by existing Admin pages
-========================================================= */
 
-// AdminDashboard.jsx
 const getDashboardStats = getAdminDashboardData;
-const getUsers = getAllUsers;
-const getProjects = getAllProjects;
-const getTasks = getAllTasks;
-
-// AdminUsers.jsx
-const updateUserRole = changeUserRole;
 
 
-/* =========================================================
-   Export
-========================================================= */
+
+// ======================================================
+
+// Exports
+
+// ======================================================
+
+
 
 export {
-    adminRequest,
 
-    // Users
-    getAllUsers,
-    getUsers,
-    getUsersByRole,
-    getPendingUsers,
-    getUser,
+    requireAdmin,
 
-    // User actions
-    approveUser,
-    rejectUser,
-    updateUser,
-    changeUserRole,
-    updateUserRole,
-    activateUser,
-    deactivateUser,
-    deleteUser,
 
-    // Projects
-    getAllProjects,
-    getProjects,
-    getProject,
-    updateProject,
-    deleteProject,
 
-    // Tasks
-    getAllTasks,
-    getTasks,
-    getTask,
-    updateTask,
-    deleteTask,
+    getAllUsers,
 
-    // Dashboard
-    getAdminDashboardData,
-    getDashboardStats
+    getUsers,
+
+    getUsersByRole,
+
+    getPendingUsers,
+
+    getUser,
+
+
+
+    approveUser,
+
+    rejectUser,
+
+    updateUser,
+
+    changeUserRole,
+
+    updateUserRole,
+
+    activateUser,
+
+    deactivateUser,
+
+    deleteUser,
+
+
+
+    getAllProjects,
+
+    getProjects,
+
+    getProject,
+
+    updateProject,
+
+    deleteProject,
+
+
+
+    getAllTasks,
+
+    getTasks,
+
+    getTask,
+
+    updateTask,
+
+    deleteTask,
+
+
+
+    getAdminDashboardData,
+
+    getDashboardStats
+
 };
 
 
-/* =========================================================
-   Default Export
-========================================================= */
 
 export default {
-    // Users
-    getAllUsers,
-    getUsers,
-    getUsersByRole,
-    getPendingUsers,
-    getUser,
 
-    // User actions
-    approveUser,
-    rejectUser,
-    updateUser,
-    changeUserRole,
-    updateUserRole,
-    activateUser,
-    deactivateUser,
-    deleteUser,
+    getAllUsers,
 
-    // Projects
-    getAllProjects,
-    getProjects,
-    getProject,
-    updateProject,
-    deleteProject,
+    getUsers,
 
-    // Tasks
-    getAllTasks,
-    getTasks,
-    getTask,
-    updateTask,
-    deleteTask,
+    getUsersByRole,
 
-    // Dashboard
-    getAdminDashboardData,
-    getDashboardStats
+    getPendingUsers,
+
+    getUser,
+
+
+
+    approveUser,
+
+    rejectUser,
+
+    updateUser,
+
+    changeUserRole,
+
+    updateUserRole,
+
+    activateUser,
+
+    deactivateUser,
+
+    deleteUser,
+
+
+
+    getAllProjects,
+
+    getProjects,
+
+    getProject,
+
+    updateProject,
+
+    deleteProject,
+
+
+
+    getAllTasks,
+
+    getTasks,
+
+    getTask,
+
+    updateTask,
+
+    deleteTask,
+
+
+
+    getAdminDashboardData,
+
+    getDashboardStats
+
 };

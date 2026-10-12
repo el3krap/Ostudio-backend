@@ -1,11 +1,8 @@
-// frontend/src/firebase.js
 
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-
-// ======================================================
-// Firebase Configuration
-// ======================================================
+import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,49 +10,34 @@ const firebaseConfig = {
     projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
     storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// ======================================================
-// Validate Firebase Environment Variables
-// ======================================================
-
-const requiredFirebaseConfig = [
-    ['VITE_FIREBASE_API_KEY', firebaseConfig.apiKey],
-    ['VITE_FIREBASE_AUTH_DOMAIN', firebaseConfig.authDomain],
-    ['VITE_FIREBASE_PROJECT_ID', firebaseConfig.projectId],
-    ['VITE_FIREBASE_STORAGE_BUCKET', firebaseConfig.storageBucket],
-    ['VITE_FIREBASE_MESSAGING_SENDER_ID', firebaseConfig.messagingSenderId],
-    ['VITE_FIREBASE_APP_ID', firebaseConfig.appId],
+const requiredConfig = [
+    'apiKey',
+    'authDomain',
+    'projectId',
+    'storageBucket',
+    'messagingSenderId',
+    'appId'
 ];
 
-const missingFirebaseConfig = requiredFirebaseConfig
-    .filter(([, value]) => !value)
-    .map(([key]) => key);
+const missingConfig = requiredConfig.filter(
+    (key) => !firebaseConfig[key]
+);
 
-if (missingFirebaseConfig.length > 0) {
-    console.error(
-        '❌ Missing Firebase configuration:',
-        missingFirebaseConfig.join(', ')
+if (missingConfig.length > 0) {
+    throw new Error(
+        `Missing Firebase configuration: ${missingConfig.join(', ')}`
     );
 }
 
-// ======================================================
-// Initialize Firebase
-// ======================================================
-
 const app = initializeApp(firebaseConfig);
 
-// ======================================================
-// Firebase Authentication
-// ======================================================
-
 const auth = getAuth(app);
+const db = getFirestore(app);
+const storage = getStorage(app);
 
-// ======================================================
-// Exports
-// ======================================================
-
-export { app, auth };
+export { app, auth, db, storage };
 
 export default app;

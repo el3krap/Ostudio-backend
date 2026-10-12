@@ -1,519 +1,469 @@
-// frontend/src/services/notificationService.js
 
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import {
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    where,
+    updateDoc,
+    deleteDoc,
+    writeBatch,
+    serverTimestamp
+} from 'firebase/firestore';
 
+// ======================================================
+// Configuration
+// ======================================================
 
-/* =========================================================
-   Configuration
-========================================================= */
+const NOTIFICATIONS_COLLECTION = 'notifications';
 
-const API_BASE_URL =
-    import.meta.env.VITE_API_URL ||
-    'http://localhost:8080/api';
+// ======================================================
+// Firebase Authentication Readiness
+// ======================================================
 
+let authReadyPromise = null;
 
-/* =========================================================
-   Authentication
-========================================================= */
-
-async function getAuthToken() {
-    if (!auth.currentUser) {
-        throw new Error(
-            'المستخدم غير مسجل الدخول.'
-        );
+function waitForFirebaseAuthReady() {
+    if (auth.currentUser) {
+        return Promise.resolve(auth.currentUser);
     }
 
-    return auth.currentUser.getIdToken();
-}
+    if (!authReadyPromise) {
+        authReadyPromise = new Promise((resolve, reject) => {
+            let unsubscribe = () => {};
 
-
-/* =========================================================
-   Response Helpers
-========================================================= */
-
-async function parseResponse(response) {
-    const contentType =
-        response.headers.get(
-            'content-type'
-        ) || '';
-
-    let data = null;
-
-    try {
-        if (
-            contentType.includes(
-                'application/json'
-            )
-        ) {
-            data =
-                await response.json();
-        } else {
-            const text =
-                await response.text();
-
-            data = text
-                ? { message: text }
-                : null;
-        }
-    } catch {
-        data = null;
-    }
-
-    if (!response.ok) {
-        const error =
-            new Error(
-                data?.message ||
-                data?.error ||
-                `Request failed with status ${response.status}`
-            );
-
-        error.status =
-            response.status;
-
-        error.data =
-            data;
-
-        throw error;
-    }
-
-    return data;
-}
-
-
-/* =========================================================
-   Generic Request
-========================================================= */
-
-async function notificationRequest(
-    endpoint,
-    options = {}
-) {
-    const token =
-        await getAuthToken();
-
-    const config = {
-        method:
-            options.method ||
-            'GET',
-
-        headers: {
-            Authorization:
-                `Bearer ${token}`,
-
-            ...(options.body
-                ? {
-                    'Content-Type':
-                        'application/json'
+            unsubscribe = onAuthStateChanged(
+                auth,
+                (user) => {
+                    unsubscribe();
+                    resolve(user || null);
+                },
+                (error) => {
+                    unsubscribe();
+                    reject(error);
                 }
-                : {}),
+            );
+        }).finally(() => {
+            authReadyPromise = null;
+        });
+    }
 
-            ...(options.headers || {})
-        }
+    return authReadyPromise;
+}
+
+async function getCurrentFirebaseUser() {
+    const user = auth.currentUser || await waitForFirebaseAuthReady();
+
+    if (!user) {
+        throw new Error('المستخدم غير مسجل الدخول.');
+    }
+
+    return user;
+}
+
+// ======================================================
+// Helpers
+// ======================================================
+
+function normalizeNotification(snapshot) {
+    const data = snapshot.data();
+
+    return {
+        id: snapshot.id,
+        _id: snapshot.id,
+        ...data
     };
+}
 
-    if (
-        options.body !== undefined
-    ) {
-        config.body =
-            typeof options.body ===
-            'string'
-                ? options.body
-                : JSON.stringify(
-                    options.body
-                );
+function getTimestampMilliseconds(value) {
+    if (!value) return 0;
+
+    if (typeof value.toMillis === 'function') {
+        return value.toMillis();
     }
 
-    const response =
-        await fetch(
-            `${API_BASE_URL}${endpoint}`,
-            config
+    if (value instanceof Date) {
+        return value.getTime();
+    }
+
+    if (typeof value === 'number') {
+        return value;
+    }
+
+    const parsed = new Date(value).getTime();
+
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function sortNotifications(notifications) {
+    return [...notifications].sort((a, b) => {
+        return (
+            getTimestampMilliseconds(b.createdAt || b.timestamp) -
+            getTimestampMilliseconds(a.createdAt || a.timestamp)
         );
-
-    return parseResponse(
-        response
-    );
+    });
 }
 
+function getLimit(value) {
+    const limit = Number(value);
 
-/* =========================================================
-   Response Normalization
-========================================================= */
-
-function extractNotifications(
-    response
-) {
-    if (
-        Array.isArray(response)
-    ) {
-        return response;
-    }
-
-    if (
-        Array.isArray(
-            response?.notifications
-        )
-    ) {
-        return response.notifications;
-    }
-
-    if (
-        Array.isArray(
-            response?.data
-        )
-    ) {
-        return response.data;
-    }
-
-    if (
-        Array.isArray(
-            response?.items
-        )
-    ) {
-        return response.items;
-    }
-
-    return [];
-}
-
-
-function extractNotification(
-    response
-) {
-    if (!response) {
+    if (!Number.isFinite(limit) || limit <= 0) {
         return null;
     }
 
-    if (
-        response.notification
-    ) {
-        return response.notification;
-    }
-
-    if (
-        response.data &&
-        !Array.isArray(
-            response.data
-        )
-    ) {
-        return response.data;
-    }
-
-    return response;
+    return Math.min(Math.floor(limit), 100);
 }
 
-
-/* =========================================================
-   Get My Notifications
-========================================================= */
-
-/**
- * Get notifications belonging
- * to the currently authenticated user.
- *
- * The backend determines the
- * recipient from the Firebase token.
- */
-export async function getMyNotifications(
-    options = {}
-) {
-    const params =
-        new URLSearchParams();
-
-    if (
-        options.limit
-    ) {
-        params.set(
-            'limit',
-            String(
-                options.limit
-            )
-        );
-    }
-
-    if (
-        options.unreadOnly
-    ) {
-        params.set(
-            'unreadOnly',
-            'true'
-        );
-    }
-
-    const query =
-        params.toString();
-
-    const endpoint =
-        query
-            ? `/notifications?${query}`
-            : '/notifications';
-
-    const response =
-        await notificationRequest(
-            endpoint
-        );
-
-    return extractNotifications(
-        response
-    );
-}
-
-
-/* =========================================================
-   Get Single Notification
-========================================================= */
-
-export async function getNotification(
-    notificationId
-) {
+function getNotificationReference(notificationId) {
     if (!notificationId) {
-        throw new Error(
-            'معرف الإشعار غير موجود.'
-        );
+        throw new Error('معرف الإشعار غير موجود.');
     }
 
-    const response =
-        await notificationRequest(
-            `/notifications/${notificationId}`
-        );
-
-    return extractNotification(
-        response
+    return doc(
+        db,
+        NOTIFICATIONS_COLLECTION,
+        notificationId
     );
 }
 
+function isRecipient(notification, uid) {
+    return notification?.recipientUid === uid;
+}
 
-/* =========================================================
-   Get Unread Notifications
-========================================================= */
+function getStoredRole() {
+    try {
+        const stored = localStorage.getItem('ostudio_user');
+
+        if (!stored) return '';
+
+        return JSON.parse(stored)?.role || '';
+    } catch {
+        return '';
+    }
+}
+
+async function getMyNotificationDocuments() {
+    const user = await getCurrentFirebaseUser();
+
+    const notificationsQuery = query(
+        collection(db, NOTIFICATIONS_COLLECTION),
+        where('recipientUid', '==', user.uid)
+    );
+
+    const snapshot = await getDocs(notificationsQuery);
+
+    return snapshot.docs.map(normalizeNotification);
+}
+
+// ======================================================
+// Get My Notifications
+// ======================================================
+
+export async function getMyNotifications(options = {}) {
+    let notifications = await getMyNotificationDocuments();
+
+    if (options.unreadOnly) {
+        notifications = notifications.filter(
+            (notification) => !notification.isRead
+        );
+    }
+
+    notifications = sortNotifications(notifications);
+
+    const limit = getLimit(options.limit);
+
+    if (limit) {
+        notifications = notifications.slice(0, limit);
+    }
+
+    return notifications;
+}
+
+// ======================================================
+// Get One Notification
+// ======================================================
+
+export async function getNotification(notificationId) {
+    const user = await getCurrentFirebaseUser();
+
+    const snapshot = await getDoc(
+        getNotificationReference(notificationId)
+    );
+
+    if (!snapshot.exists()) {
+        throw new Error('الإشعار غير موجود.');
+    }
+
+    const notification = normalizeNotification(snapshot);
+
+    if (!isRecipient(notification, user.uid)) {
+        throw new Error('ليس لديك صلاحية الوصول إلى هذا الإشعار.');
+    }
+
+    return notification;
+}
+
+// ======================================================
+// Get Unread Notifications
+// ======================================================
 
 export async function getUnreadNotifications() {
-    const response =
-        await notificationRequest(
-            '/notifications?unreadOnly=true'
-        );
-
-    return extractNotifications(
-        response
-    );
+    return getMyNotifications({
+        unreadOnly: true
+    });
 }
 
-
-/* =========================================================
-   Get Unread Count
-========================================================= */
+// ======================================================
+// Get Unread Count
+// ======================================================
 
 export async function getUnreadNotificationCount() {
-    const notifications =
-        await getUnreadNotifications();
+    const notifications = await getUnreadNotifications();
 
     return notifications.length;
 }
 
+// ======================================================
+// Mark One Notification As Read
+// ======================================================
 
-/* =========================================================
-   Mark One Notification As Read
-========================================================= */
+export async function markNotificationAsRead(notificationId) {
+    const user = await getCurrentFirebaseUser();
 
-export async function markNotificationAsRead(
-    notificationId
-) {
-    if (!notificationId) {
-        throw new Error(
-            'معرف الإشعار غير موجود.'
-        );
+    const reference = getNotificationReference(notificationId);
+    const snapshot = await getDoc(reference);
+
+    if (!snapshot.exists()) {
+        throw new Error('الإشعار غير موجود.');
     }
 
-    const response =
-        await notificationRequest(
-            `/notifications/${notificationId}/read`,
-            {
-                method: 'PUT'
-            }
-        );
+    if (!isRecipient(snapshot.data(), user.uid)) {
+        throw new Error('ليس لديك صلاحية تعديل هذا الإشعار.');
+    }
 
-    return extractNotification(
-        response
-    );
+    await updateDoc(reference, {
+        isRead: true,
+        readAt: serverTimestamp()
+    });
+
+    const updatedSnapshot = await getDoc(reference);
+
+    return normalizeNotification(updatedSnapshot);
 }
 
-
-/* =========================================================
-   Mark All Notifications As Read
-========================================================= */
+// ======================================================
+// Mark All My Notifications As Read
+// ======================================================
 
 export async function markAllNotificationsAsRead() {
-    const response =
-        await notificationRequest(
-            '/notifications/read-all',
-            {
-                method: 'PUT'
-            }
-        );
+    const user = await getCurrentFirebaseUser();
 
-    return response;
-}
+    const notifications = await getMyNotificationDocuments();
 
+    const unreadNotifications = notifications.filter(
+        (notification) => !notification.isRead
+    );
 
-/* =========================================================
-   Delete Notification
-========================================================= */
-
-export async function deleteNotification(
-    notificationId
-) {
-    if (!notificationId) {
-        throw new Error(
-            'معرف الإشعار غير موجود.'
-        );
+    if (unreadNotifications.length === 0) {
+        return {
+            success: true,
+            updatedCount: 0
+        };
     }
 
-    const response =
-        await notificationRequest(
-            `/notifications/${notificationId}`,
-            {
-                method: 'DELETE'
-            }
-        );
+    let updatedCount = 0;
 
-    return response;
+    for (let i = 0; i < unreadNotifications.length; i += 450) {
+        const batch = writeBatch(db);
+        const chunk = unreadNotifications.slice(i, i + 450);
+
+        chunk.forEach((notification) => {
+            if (notification.recipientUid !== user.uid) {
+                return;
+            }
+
+            const reference = doc(
+                db,
+                NOTIFICATIONS_COLLECTION,
+                notification.id
+            );
+
+            batch.update(reference, {
+                isRead: true,
+                readAt: serverTimestamp()
+            });
+
+            updatedCount += 1;
+        });
+
+        await batch.commit();
+    }
+
+    return {
+        success: true,
+        updatedCount
+    };
 }
 
+// ======================================================
+// Delete One Notification
+// ======================================================
 
-/* =========================================================
-   Delete All Read Notifications
-========================================================= */
+export async function deleteNotification(notificationId) {
+    const user = await getCurrentFirebaseUser();
+
+    const reference = getNotificationReference(notificationId);
+    const snapshot = await getDoc(reference);
+
+    if (!snapshot.exists()) {
+        throw new Error('الإشعار غير موجود.');
+    }
+
+    if (!isRecipient(snapshot.data(), user.uid)) {
+        throw new Error('ليس لديك صلاحية حذف هذا الإشعار.');
+    }
+
+    await deleteDoc(reference);
+
+    return {
+        success: true,
+        id: notificationId
+    };
+}
+
+// ======================================================
+// Delete All Read Notifications
+// ======================================================
 
 export async function deleteReadNotifications() {
-    const response =
-        await notificationRequest(
-            '/notifications/read',
-            {
-                method: 'DELETE'
+    const user = await getCurrentFirebaseUser();
+
+    const notifications = await getMyNotificationDocuments();
+
+    const readNotifications = notifications.filter(
+        (notification) => notification.isRead
+    );
+
+    let deletedCount = 0;
+
+    for (let i = 0; i < readNotifications.length; i += 450) {
+        const batch = writeBatch(db);
+        const chunk = readNotifications.slice(i, i + 450);
+
+        chunk.forEach((notification) => {
+            if (notification.recipientUid !== user.uid) {
+                return;
             }
-        );
 
-    return response;
-}
+            batch.delete(
+                doc(
+                    db,
+                    NOTIFICATIONS_COLLECTION,
+                    notification.id
+                )
+            );
 
+            deletedCount += 1;
+        });
 
-/* =========================================================
-   Notification Helpers
-========================================================= */
-
-export function getNotificationId(
-    notification
-) {
-    if (!notification) {
-        return '';
+        await batch.commit();
     }
 
+    return {
+        success: true,
+        deletedCount
+    };
+}
+
+// ======================================================
+// Notification Helpers
+// ======================================================
+
+export function getNotificationId(notification) {
+    if (!notification) return '';
+
     return (
-        notification._id ||
         notification.id ||
-        notification.mongoId ||
+        notification._id ||
+        notification.notificationId ||
         ''
     );
 }
 
-
-export function getNotificationProjectId(
-    notification
-) {
-    if (!notification) {
-        return '';
-    }
+export function getNotificationProjectId(notification) {
+    if (!notification) return '';
 
     if (
-        typeof notification.project ===
-        'object' &&
+        typeof notification.project === 'object' &&
         notification.project !== null
     ) {
         return (
-            notification.project._id ||
             notification.project.id ||
+            notification.project._id ||
             ''
         );
     }
 
     return (
-        notification.project ||
         notification.projectId ||
+        notification.project ||
         ''
     );
 }
 
-
-export function getNotificationTaskId(
-    notification
-) {
-    if (!notification) {
-        return '';
-    }
+export function getNotificationTaskId(notification) {
+    if (!notification) return '';
 
     if (
-        typeof notification.task ===
-        'object' &&
+        typeof notification.task === 'object' &&
         notification.task !== null
     ) {
         return (
-            notification.task._id ||
             notification.task.id ||
+            notification.task._id ||
             ''
         );
     }
 
     return (
-        notification.task ||
         notification.taskId ||
+        notification.task ||
         ''
     );
 }
 
-
-export function getNotificationSender(
-    notification
-) {
-    if (!notification) {
-        return null;
-    }
+export function getNotificationSender(notification) {
+    if (!notification) return null;
 
     if (
-        typeof notification.sender ===
-        'object'
+        typeof notification.sender === 'object' &&
+        notification.sender !== null
     ) {
         return notification.sender;
     }
 
-    return null;
+    return notification.senderName
+        ? { name: notification.senderName }
+        : null;
 }
 
-
-export function getNotificationType(
-    notification
-) {
-    return (
-        notification?.type ||
-        'general'
-    );
+export function getNotificationType(notification) {
+    return notification?.type || 'general';
 }
 
+// ======================================================
+// Notification Title
+// ======================================================
 
-/* =========================================================
-   Notification Title
-========================================================= */
-
-export function getNotificationTitle(
-    notification
-) {
-    if (
-        notification?.title
-    ) {
+export function getNotificationTitle(notification) {
+    if (notification?.title) {
         return notification.title;
     }
 
-    switch (
-        notification?.type
-    ) {
+    switch (notification?.type) {
         case 'project-created':
             return 'مشروع جديد';
 
@@ -546,81 +496,68 @@ export function getNotificationTitle(
     }
 }
 
+// ======================================================
+// Notification Message
+// ======================================================
 
-/* =========================================================
-   Notification Message
-========================================================= */
-
-export function getNotificationMessage(
-    notification
-) {
-    return (
-        notification?.message ||
-        'لديك إشعار جديد.'
-    );
+export function getNotificationMessage(notification) {
+    return notification?.message || 'لديك إشعار جديد.';
 }
 
+// ======================================================
+// Role-Aware Notification Links
+// ======================================================
 
-/* =========================================================
-   Notification Link
-========================================================= */
-
-export function getNotificationLink(
-    notification
-) {
-    if (
-        notification?.link
-    ) {
+export function getNotificationLink(notification) {
+    if (notification?.link) {
         return notification.link;
     }
 
-    const projectId =
-        getNotificationProjectId(
-            notification
-        );
+    const role = getStoredRole();
+    const projectId = getNotificationProjectId(notification);
+    const taskId = getNotificationTaskId(notification);
+    const type = getNotificationType(notification);
 
-    const taskId =
-        getNotificationTaskId(
-            notification
-        );
+    const projectRoutes = {
+        admin: '/admin/projects',
+        manager: '/manager/projects',
+        account_manager: '/account-manager/projects',
+        coordinator: '/coordinator/projects',
+        designer: '/designer/projects'
+    };
 
-    const type =
-        getNotificationType(
-            notification
-        );
+    const taskRoutes = {
+        admin: '/admin/tasks',
+        manager: '/manager/tasks',
+        coordinator: '/coordinator/tasks',
+        designer: '/designer/tasks'
+    };
 
-    if (
-        taskId &&
-        (
-            type ===
-                'task-assigned' ||
-            type ===
-                'task-updated'
-        )
-    ) {
-        return `/tasks/${taskId}`;
+    if (taskId && ['task-assigned', 'task-updated'].includes(type)) {
+        const baseRoute = taskRoutes[role];
+
+        return baseRoute
+            ? `${baseRoute}/${taskId}`
+            : '';
     }
 
-    if (
-        projectId
-    ) {
-        return `/projects/${projectId}`;
+    if (projectId) {
+        const baseRoute = projectRoutes[role];
+
+        return baseRoute
+            ? `${baseRoute}/${projectId}`
+            : '';
     }
 
     return '';
 }
 
+// ======================================================
+// Notification Icon
+// ======================================================
 
-/* =========================================================
-   Notification Icon
-========================================================= */
-
-export function getNotificationIcon(
-    notification
-) {
-    switch (
-        notification?.type
-    ) {
+export function getNotificationIcon(notification) {
+    switch (notification?.type) {
         case 'project-created':
             return '📁';
 
@@ -653,110 +590,68 @@ export function getNotificationIcon(
     }
 }
 
+// ======================================================
+// Notification Time
+// ======================================================
 
-/* =========================================================
-   Notification Time
-========================================================= */
+export function formatNotificationTime(value) {
+    if (!value) return '';
 
-export function formatNotificationTime(
-    value
-) {
-    if (!value) {
+    let date;
+
+    if (typeof value.toDate === 'function') {
+        date = value.toDate();
+    } else {
+        date = new Date(value);
+    }
+
+    if (Number.isNaN(date.getTime())) {
         return '';
     }
 
-    const date =
-        new Date(value);
+    const diff = Math.max(0, Date.now() - date.getTime());
+    const seconds = Math.floor(diff / 1000);
 
-    if (
-        Number.isNaN(
-            date.getTime()
-        )
-    ) {
-        return '';
-    }
-
-    const now =
-        Date.now();
-
-    const diff =
-        Math.max(
-            0,
-            now -
-                date.getTime()
-        );
-
-    const seconds =
-        Math.floor(
-            diff / 1000
-        );
-
-    if (
-        seconds < 60
-    ) {
+    if (seconds < 60) {
         return 'منذ لحظات';
     }
 
-    const minutes =
-        Math.floor(
-            seconds / 60
-        );
+    const minutes = Math.floor(seconds / 60);
 
-    if (
-        minutes < 60
-    ) {
+    if (minutes < 60) {
         return `منذ ${minutes} دقيقة`;
     }
 
-    const hours =
-        Math.floor(
-            minutes / 60
-        );
+    const hours = Math.floor(minutes / 60);
 
-    if (
-        hours < 24
-    ) {
+    if (hours < 24) {
         return `منذ ${hours} ساعة`;
     }
 
-    const days =
-        Math.floor(
-            hours / 24
-        );
+    const days = Math.floor(hours / 24);
 
-    if (
-        days < 7
-    ) {
+    if (days < 7) {
         return `منذ ${days} يوم`;
     }
 
-    return date.toLocaleDateString(
-        'ar-EG',
-        {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        }
-    );
+    return date.toLocaleDateString('ar-EG', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+    });
 }
 
+// ======================================================
+// Read Status
+// ======================================================
 
-/* =========================================================
-   Check Read Status
-========================================================= */
-
-export function isNotificationRead(
-    notification
-) {
-    return Boolean(
-        notification?.isRead
-    );
+export function isNotificationRead(notification) {
+    return Boolean(notification?.isRead);
 }
 
-
-/* =========================================================
-   Default Export
-========================================================= */
+// ======================================================
+// Default Export
+// ======================================================
 
 const notificationService = {
     getMyNotifications,
