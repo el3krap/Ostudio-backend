@@ -594,6 +594,13 @@ const AccountManagerProjects = () => {
 
                                             </p>
 
+                                            <p className="project-coordinator">
+                                                <strong>Coordinator المسؤول: </strong>
+                                                {project?.assignedCoordinator?.name ||
+                                                    project?.assignedCoordinator?.email ||
+                                                    'غير محدد'}
+                                            </p>
+
                                             <div className="project-info">
 
                                                 <div>

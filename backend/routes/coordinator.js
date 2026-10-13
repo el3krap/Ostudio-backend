@@ -205,6 +205,98 @@ async function getActiveDesigner(designerId) {
 }
 
 
+// ======================================================
+// Coordinator Project-Ownership Guards
+// ======================================================
+// A Coordinator may only access projects assigned to their
+// authenticated account. Never trust an ID supplied by the client.
+
+async function findAssignedProject(projectId, coordinatorId) {
+    if (!isValidObjectId(projectId) || !coordinatorId) {
+        return null;
+    }
+
+    return Project.findOne({
+        _id: projectId,
+        assignedCoordinator: coordinatorId,
+    });
+}
+
+router.param('projectId', async (req, res, next, projectId) => {
+    try {
+        if (!isValidObjectId(projectId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid project ID.',
+            });
+        }
+
+        const project = await findAssignedProject(
+            projectId,
+            req.user?.mongoId
+        );
+
+        if (!project) {
+            return res.status(404).json({
+                success: false,
+                message: 'Project not found or not assigned to you.',
+            });
+        }
+
+        req.coordinatorProject = project;
+        return next();
+    } catch (error) {
+        console.error('Coordinator project authorization error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to authorize project access.',
+        });
+    }
+});
+
+router.param('taskId', async (req, res, next, taskId) => {
+    try {
+        if (!isValidObjectId(taskId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid task ID.',
+            });
+        }
+
+        const task = await Task.findById(taskId).select('_id projectId');
+
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found.',
+            });
+        }
+
+        const project = await findAssignedProject(
+            task.projectId,
+            req.user?.mongoId
+        );
+
+        if (!project) {
+            return res.status(404).json({
+                success: false,
+                message: 'Task not found or its project is not assigned to you.',
+            });
+        }
+
+        req.coordinatorTask = task;
+        req.coordinatorProject = project;
+        return next();
+    } catch (error) {
+        console.error('Coordinator task authorization error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to authorize task access.',
+        });
+    }
+});
+
+
 async function createNotification({
     recipient,
     sender,
@@ -244,10 +336,71 @@ async function createNotification({
 
 
 // ======================================================
+// CREATE PROJECT (Coordinator)
+// The selected active Coordinator becomes the sole owner.
+// ======================================================
+router.get('/available-coordinators', async (req, res) => {
+    try {
+        const coordinators = await User.find({
+            role: 'coordinator',
+            status: { $in: ['active', 'approved'] },
+        }).select('_id name email role status').sort({ name: 1 }).lean();
+        return res.json({ success: true, coordinators, data: coordinators });
+    } catch (error) {
+        console.error('Load available coordinators error:', error);
+        return res.status(500).json({ success: false, message: 'تعذر تحميل قائمة المسؤولين.' });
+    }
+});
+
+router.post('/projects', async (req, res) => {
+    try {
+        const { projectName, assignedCoordinator, brief = '', briefName = '', description = '', managerNotes = '', startDate = null, deadline = null } = req.body || {};
+        if (typeof projectName !== 'string' || !projectName.trim()) {
+            return res.status(400).json({ success: false, message: 'اسم المشروع مطلوب.' });
+        }
+        if (!assignedCoordinator || !isValidObjectId(assignedCoordinator)) {
+            return res.status(400).json({ success: false, message: 'اختار Coordinator مسؤول صالح.' });
+        }
+        const coordinator = await User.findOne({
+            _id: assignedCoordinator, role: 'coordinator', status: { $in: ['active', 'approved'] }
+        }).select('_id name email role');
+        if (!coordinator) {
+            return res.status(400).json({ success: false, message: 'المسؤول المختار غير نشط أو غير صالح.' });
+        }
+        const project = await Project.create({
+            projectName: projectName.trim(), brief: brief || '', briefName: briefName || '',
+            description: description || '', managerNotes: managerNotes || '',
+            startDate: normalizeDate(startDate), deadline: normalizeDate(deadline),
+            createdBy: req.user.mongoId, assignedCoordinator: coordinator._id,
+            assignedDesigner: null, assignedDesignerId: '', assignedDesignerName: '',
+            assignedPresenter: null, assignedPresenterId: '', assignedPresenterName: '',
+            checkpoints: [], isDoneAll: false, isPresentationApproved: false, status: 'in-progress'
+        });
+        try {
+            await Notification.create({
+                recipient: coordinator._id, sender: req.user.mongoId, type: 'project-created',
+                title: 'مشروع جديد تم إسناده إليك',
+                message: `${req.user.name || 'Coordinator'} أنشأ مشروعًا وأسنده إليك: ${project.projectName}`,
+                project: project._id, link: `/coordinator/projects/${project._id}`, isRead: false
+            });
+        } catch (notificationError) {
+            console.error('Coordinator project notification error:', notificationError.message);
+        }
+        const populated = await Project.findById(project._id)
+            .populate('createdBy', 'name email role')
+            .populate('assignedCoordinator', 'name email role').lean();
+        return res.status(201).json({ success: true, message: 'تم إنشاء المشروع وإسناده بنجاح.', project: populated, data: populated });
+    } catch (error) {
+        console.error('Coordinator create project error:', error);
+        return res.status(500).json({ success: false, message: 'حدث خطأ أثناء إنشاء المشروع.' });
+    }
+});
+
+// ======================================================
 // GET ALL PROJECTS
 // ======================================================
 //
-// Coordinator can see ALL projects.
+// A Coordinator only sees projects assigned to their account.
 // ======================================================
 
 router.get(
@@ -255,7 +408,9 @@ router.get(
     async (req, res) => {
         try {
             const projects =
-                await Project.find({})
+                await Project.find({
+                    assignedCoordinator: req.user.mongoId,
+                })
                     .populate(
                         'createdBy',
                         'name email role'
@@ -266,6 +421,10 @@ router.get(
                     )
                     .populate(
                         'assignedPresenter',
+                        'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
                         'name email role'
                     )
                     .sort({
@@ -328,6 +487,10 @@ router.get(
                     )
                     .populate(
                         'assignedPresenter',
+                        'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
                         'name email role'
                     );
 
@@ -435,6 +598,10 @@ router.put(
                     )
                     .populate(
                         'assignedPresenter',
+                        'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
                         'name email role'
                     );
 
@@ -580,6 +747,10 @@ router.put(
                     )
                     .populate(
                         'assignedPresenter',
+                        'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
                         'name email role'
                     );
 
@@ -778,6 +949,10 @@ router.put(
                     )
                     .populate(
                         'assignedPresenter',
+                        'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
                         'name email role'
                     );
 
@@ -998,6 +1173,10 @@ router.put(
                     .populate(
                         'assignedPresenter',
                         'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role'
                     );
 
             return res.status(200).json({
@@ -1110,8 +1289,14 @@ router.get(
     '/tasks',
     async (req, res) => {
         try {
+            const assignedProjects = await Project.find({
+                assignedCoordinator: req.user.mongoId,
+            }).select('_id');
+
             const tasks =
-                await Task.find({})
+                await Task.find({
+                    projectId: { $in: assignedProjects.map((project) => project._id) },
+                })
                     .populate(
                         'projectId',
                         'projectName status'
@@ -1243,15 +1428,16 @@ router.post(
             }
 
             const project =
-                await Project.findById(
-                    projectId
+                await findAssignedProject(
+                    projectId,
+                    req.user.mongoId
                 );
 
             if (!project) {
                 return res.status(404).json({
                     success: false,
                     message:
-                        'Project not found.',
+                        'Project not found or not assigned to you.',
                 });
             }
 

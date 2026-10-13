@@ -23,7 +23,9 @@ import {
 import {
     getDashboardData,
     getProjects,
-    createProject
+    getCoordinators,
+    createProject,
+    uploadProjectBrief
 } from '../../services/managerService';
 
 
@@ -200,14 +202,20 @@ export default function ManagerDashboard() {
     const [creating, setCreating] =
         useState(false);
 
+    const [coordinators, setCoordinators] =
+        useState([]);
+
     const [form, setForm] =
         useState({
             projectName: '',
             brief: '',
+            briefName: '',
+            briefFile: null,
             description: '',
             startDate: '',
             deadline: '',
-            managerNotes: ''
+            managerNotes: '',
+            coordinatorId: ''
         });
 
 
@@ -270,18 +278,26 @@ export default function ManagerDashboard() {
 
                 const [
                     dashboardResult,
-                    projectsResult
+                    projectsResult,
+                    coordinatorsResult
                 ] = await Promise.all([
                     getDashboardData()
                         .catch(
                             () => null
                         ),
 
-                    getProjects()
+                    getProjects(),
+                    getCoordinators()
                 ]);
 
                 setDashboard(
                     dashboardResult
+                );
+
+                setCoordinators(
+                    Array.isArray(coordinatorsResult)
+                        ? coordinatorsResult
+                        : []
                 );
 
                 setProjects(
@@ -507,10 +523,13 @@ export default function ManagerDashboard() {
             setForm({
                 projectName: '',
                 brief: '',
+                briefName: '',
+                briefFile: null,
                 description: '',
                 startDate: '',
                 deadline: '',
-                managerNotes: ''
+                managerNotes: '',
+                coordinatorId: ''
             });
         };
 
@@ -533,31 +552,32 @@ export default function ManagerDashboard() {
                 return;
             }
 
+            if (!form.coordinatorId) {
+                setError('اختار الـ Coordinator المسؤول عن المشروع.');
+                return;
+            }
+
             try {
                 setCreating(true);
                 setError('');
                 setSuccess('');
 
+                let briefUpload = { url: form.brief || '', fileName: form.briefName || '' };
+                if (form.briefFile) {
+                    briefUpload = await uploadProjectBrief(form.briefFile);
+                }
+
                 await createProject({
                     projectName:
                         form.projectName.trim(),
 
-                    brief:
-                        form.brief.trim(),
-
-                    description:
-                        form.description.trim(),
-
-                    startDate:
-                        form.startDate ||
-                        null,
-
-                    deadline:
-                        form.deadline ||
-                        null,
-
-                    managerNotes:
+                    brief: briefUpload.url,
+                    briefName: briefUpload.fileName,
+managerNotes:
                         form.managerNotes.trim(),
+
+                    coordinatorId:
+                        form.coordinatorId,
 
                     status:
                         'in-progress'
@@ -1419,113 +1439,21 @@ export default function ManagerDashboard() {
 
 
                             <div className="form-group">
-
-                                <label>
-                                    Brief
-                                </label>
-
-                                <textarea
-                                    rows={3}
-                                    value={
-                                        form.brief
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        updateForm(
-                                            'brief',
-                                            event
-                                                .target
-                                                .value
-                                        )
-                                    }
-                                    placeholder="وصف مختصر للمشروع"
+                                <label>ملف الـ Brief (PDF، صور، فيديوهات أو أي نوع ملف)</label>
+                                <input
+                                    type="file"
+                                    onChange={(event) => updateForm('briefFile', event.target.files?.[0] || null)}
+                                    disabled={saving || creating}
                                 />
-
+                                {form.briefFile && <small>الملف المختار: {form.briefFile.name}</small>}
+                                {form.briefName && !form.briefFile && <small>الملف الحالي: {form.briefName}</small>}
                             </div>
 
 
-                            <div className="form-group">
-
-                                <label>
-                                    الوصف
-                                </label>
-
-                                <textarea
-                                    rows={4}
-                                    value={
-                                        form.description
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        updateForm(
-                                            'description',
-                                            event
-                                                .target
-                                                .value
-                                        )
-                                    }
-                                    placeholder="تفاصيل المشروع"
-                                />
-
-                            </div>
+                            
 
 
-                            <div className="form-grid">
-
-                                <div className="form-group">
-
-                                    <label>
-                                        تاريخ البداية
-                                    </label>
-
-                                    <input
-                                        type="date"
-                                        value={
-                                            form.startDate
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'startDate',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
-                                    />
-
-                                </div>
-
-
-                                <div className="form-group">
-
-                                    <label>
-                                        Deadline
-                                    </label>
-
-                                    <input
-                                        type="date"
-                                        value={
-                                            form.deadline
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'deadline',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
-                                    />
-
-                                </div>
-
-                            </div>
+                            
 
 
                             <div className="form-group">
@@ -1551,6 +1479,43 @@ export default function ManagerDashboard() {
                                     }
                                     placeholder="أي ملاحظات خاصة بالمشروع"
                                 />
+
+                            </div>
+
+
+                            <div className="form-group">
+
+                                <label>
+                                    الـ Coordinator المسؤول *
+                                </label>
+
+                                <select
+                                    value={form.coordinatorId}
+                                    onChange={(event) =>
+                                        updateForm('coordinatorId', event.target.value)
+                                    }
+                                    required
+                                    disabled={creating || coordinators.length === 0}
+                                >
+                                    <option value="">
+                                        {coordinators.length === 0
+                                            ? 'لا توجد حسابات Coordinator نشطة'
+                                            : 'اختر الـ Coordinator المسؤول'}
+                                    </option>
+                                    {coordinators.map((coordinator) => (
+                                        <option
+                                            key={coordinator._id}
+                                            value={coordinator._id}
+                                        >
+                                            {coordinator.name || coordinator.email || coordinator._id}
+                                            {coordinator.email ? ` — ${coordinator.email}` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+
+                                <small>
+                                    يتم عرض الحسابات النشطة أو المعتمدة فقط.
+                                </small>
 
                             </div>
 

@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const router = express.Router();
 
 const Project = require('../models/Project');
+const User = require('../models/User');
+const Notification = require('../models/Notification');
 
 const {
     authenticateUser,
@@ -112,147 +114,57 @@ function buildProjectData(body = {}) {
 
 
     // --------------------------------------------------
-    // Checkpoints
-    // --------------------------------------------------
-
-    if (Array.isArray(body.checkpoints)) {
-        data.checkpoints =
-            body.checkpoints.map(
-                (checkpoint) => ({
-                    id:
-                        checkpoint.id ||
-                        null,
-
-                    title:
-                        checkpoint.title ||
-                        '',
-
-                    isCompleted:
-                        Boolean(
-                            checkpoint.isCompleted
-                        ),
-
-                    imageLink:
-                        checkpoint.imageLink ||
-                        '',
-
-                    fileUrl:
-                        checkpoint.fileUrl ||
-                        '',
-
-                    fileName:
-                        checkpoint.fileName ||
-                        '',
-
-                    note:
-                        checkpoint.note ||
-                        '',
-                })
-            );
-    }
-
-
-    // --------------------------------------------------
-    // Render Information
-    // --------------------------------------------------
-
-    if (body.renderFileLink !== undefined) {
-        data.renderFileLink =
-            String(body.renderFileLink);
-    }
-
-    if (body.renderFileName !== undefined) {
-        data.renderFileName =
-            String(body.renderFileName);
-    }
-
-    if (body.renderStatus !== undefined) {
-        data.renderStatus =
-            String(body.renderStatus);
-    }
-
-
-    // --------------------------------------------------
-    // Presentation Information
-    // --------------------------------------------------
-
-    if (
-        body.presentationFileLink !==
-        undefined
-    ) {
-        data.presentationFileLink =
-            String(
-                body.presentationFileLink
-            );
-    }
-
-    if (
-        body.presentationFileName !==
-        undefined
-    ) {
-        data.presentationFileName =
-            String(
-                body.presentationFileName
-            );
-    }
-
-    if (body.presenterNote !== undefined) {
-        data.presenterNote =
-            String(body.presenterNote);
-    }
-
-
-    // --------------------------------------------------
-    // Coordinator Notes
-    // --------------------------------------------------
-
-    if (body.coordinatorNotes !== undefined) {
-        data.coordinatorNotes =
-            String(body.coordinatorNotes);
-    }
-
-
-    // --------------------------------------------------
-    // Status
-    // --------------------------------------------------
-
-    if (body.status !== undefined) {
-        const allowedStatuses = [
-            'in-progress',
-            'completed',
-        ];
-
-        if (
-            allowedStatuses.includes(
-                body.status
-            )
-        ) {
-            data.status = body.status;
-        }
-    }
-
-
-    // --------------------------------------------------
     // IMPORTANT
     // --------------------------------------------------
     //
-    // These fields are intentionally NOT accepted
-    // from Account Manager requests:
+    // These fields are intentionally NOT accepted from
+    // Account Manager requests, on create or update:
+    // createdBy, assignedDesigner, assignedPresenter,
+    // checkpoints/progress, render/presentation approvals,
+    // coordinatorNotes, isDoneAll, and project status.
     //
-    // createdBy
-    // assignedDesigner
-    // assignedDesignerId
-    // assignedDesignerName
-    // assignedPresenter
-    // assignedPresenterId
-    // assignedPresenterName
-    // isPresentationApproved
-    //
-    // Assignment belongs to Coordinator / Manager / Admin.
+    // Account Manager may edit basic project information only.
+    // Coordinator assignment is validated separately on creation.
     // ==================================================
 
     return data;
 }
+
+
+// ======================================================
+// GET ACTIVE COORDINATORS
+// ======================================================
+//
+// Account Manager may select one active/approved Coordinator
+// when creating a project. The list is read-only.
+// ======================================================
+
+router.get(
+    '/coordinators',
+    async (req, res) => {
+        try {
+            const coordinators = await User.find({
+                role: 'coordinator',
+                status: { $in: ['active', 'approved'] },
+            })
+                .select('_id name email role status')
+                .sort({ name: 1 })
+                .lean();
+
+            return res.status(200).json({
+                success: true,
+                coordinators,
+                data: coordinators,
+            });
+        } catch (error) {
+            console.error('Account Manager coordinators error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to load Coordinators.',
+            });
+        }
+    }
+);
 
 
 // ======================================================
@@ -272,6 +184,10 @@ router.get(
                     createdBy:
                         req.user.mongoId,
                 })
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role status'
+                    )
                     .populate(
                         'assignedDesigner',
                         'name email role'
@@ -342,6 +258,10 @@ router.get(
                         req.user.mongoId,
                 })
                     .populate(
+                        'assignedCoordinator',
+                        'name email role status'
+                    )
+                    .populate(
                         'assignedDesigner',
                         'name email role'
                     )
@@ -398,134 +318,72 @@ router.post(
     async (req, res) => {
         try {
 
-            const projectData =
-                buildProjectData(req.body);
+            const projectData = buildProjectData(req.body);
+            const coordinatorId = req.body?.assignedCoordinator;
 
-
-            if (
-                !projectData.projectName ||
-                !projectData.projectName.trim()
-            ) {
+            if (!projectData.projectName || !projectData.projectName.trim()) {
                 return res.status(400).json({
                     success: false,
-                    message:
-                        'Project name is required.',
+                    message: 'Project name is required.',
                 });
             }
 
-
-            const project =
-                new Project({
-                    ...projectData,
-
-                    createdBy:
-                        req.user.mongoId,
-
-                    // Account Manager cannot assign
-                    // designers during project creation.
-                    assignedDesigner:
-                        null,
-
-                    assignedDesignerId:
-                        '',
-
-                    assignedDesignerName:
-                        '',
-
-                    assignedPresenter:
-                        null,
-
-                    assignedPresenterId:
-                        '',
-
-                    assignedPresenterName:
-                        '',
-
-                    isPresentationApproved:
-                        false,
+            if (!coordinatorId || !isValidObjectId(coordinatorId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Please select a valid Coordinator.',
                 });
+            }
 
+            const coordinator = await User.findOne({
+                _id: coordinatorId,
+                role: 'coordinator',
+                status: { $in: ['active', 'approved'] },
+            }).select('_id name email role status');
+
+            if (!coordinator) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'The selected Coordinator is not active or approved.',
+                });
+            }
+
+            const project = new Project({
+                ...projectData,
+                createdBy: req.user.mongoId,
+                assignedCoordinator: coordinator._id,
+
+                // Account Manager cannot assign designers or presenters.
+                assignedDesigner: null,
+                assignedDesignerId: '',
+                assignedDesignerName: '',
+                assignedPresenter: null,
+                assignedPresenterId: '',
+                assignedPresenterName: '',
+                isPresentationApproved: false,
+                isDoneAll: false,
+                status: 'in-progress',
+            });
 
             await project.save();
 
 
-            // --------------------------------------------------
-            // Notify Coordinators
-            // --------------------------------------------------
-            //
-            // This is intentionally handled here only if the
-            // Notification model is available.
-            //
-            // If the notification route/service is centralized,
-            // this block can be moved to a notification helper.
-            // --------------------------------------------------
-
+            // Notify only the Coordinator assigned to this project.
             try {
-
-                const User =
-                    require('../models/User');
-
-                const Notification =
-                    require('../models/Notification');
-
-
-                const coordinators =
-                    await User.find({
-                        role: 'coordinator',
-                        status: {
-                            $in: [
-                                'active',
-                                'approved',
-                            ],
-                        },
-                    }).select('_id');
-
-
-                if (
-                    coordinators.length > 0
-                ) {
-
-                    const notifications =
-                        coordinators.map(
-                            (coordinator) => ({
-                                recipient:
-                                    coordinator._id,
-
-                                sender:
-                                    req.user.mongoId,
-
-                                type:
-                                    'project-created',
-
-                                title:
-                                    'مشروع جديد',
-
-                                message:
-                                    `${req.user.name || 'Account Manager'} أنشأ مشروعًا جديدًا: ${project.projectName}`,
-
-                                project:
-                                    project._id,
-
-                                link:
-                                    `/coordinator/projects/${project._id}`,
-
-                                isRead:
-                                    false,
-                            })
-                        );
-
-
-                    await Notification.insertMany(
-                        notifications
-                    );
-                }
-
+                await Notification.create({
+                    recipient: coordinator._id,
+                    sender: req.user.mongoId,
+                    type: 'project-created',
+                    title: 'مشروع جديد تم إسناده إليك',
+                    message: `${req.user.name || 'Account Manager'} أنشأ مشروعًا جديدًا وأسنده إليك: ${project.projectName}`,
+                    project: project._id,
+                    link: `/coordinator/projects/${project._id}`,
+                    isRead: false,
+                });
             } catch (notificationError) {
-
-                // Do not fail project creation just because
-                // notification creation failed.
+                // Notification failure must not undo project creation.
                 console.error(
-                    '⚠️ Account Manager project notification error:',
+                    'Account Manager project notification error:',
                     notificationError.message
                 );
             }
@@ -535,6 +393,10 @@ router.post(
                 await Project.findById(
                     project._id
                 )
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role status'
+                    )
                     .populate(
                         'assignedDesigner',
                         'name email role'
@@ -655,6 +517,10 @@ router.put(
                 await Project.findById(
                     project._id
                 )
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role status'
+                    )
                     .populate(
                         'assignedDesigner',
                         'name email role'

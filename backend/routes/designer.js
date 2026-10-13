@@ -56,87 +56,22 @@ function normalizeDate(value) {
 function buildTaskUpdate(body = {}) {
     const data = {};
 
-    if (body.title !== undefined) {
-        data.title =
-            String(body.title).trim();
-    }
-
-    if (body.description !== undefined) {
-        data.description =
-            String(body.description);
-    }
-
+    // Designer may submit files and work notes for their assigned task.
+    // Task title, description, deadline, assignment, and status are
+    // controlled by the Coordinator / authorized managers.
     if (body.fileLink !== undefined) {
-        data.fileLink =
-            String(body.fileLink);
+        data.fileLink = String(body.fileLink).trim();
     }
 
     if (body.fileName !== undefined) {
-        data.fileName =
-            String(body.fileName);
+        data.fileName = String(body.fileName).trim();
     }
 
     if (body.notes !== undefined) {
-        data.notes =
-            String(body.notes);
-    }
-
-    if (body.deadline !== undefined) {
-        data.deadline =
-            normalizeDate(body.deadline);
-    }
-
-    if (body.status !== undefined) {
-        const allowedStatuses = [
-            'pending',
-            'in-progress',
-            'completed',
-        ];
-
-        if (
-            allowedStatuses.includes(
-                body.status
-            )
-        ) {
-            data.status = body.status;
-        }
+        data.notes = String(body.notes);
     }
 
     return data;
-}
-
-
-function buildCheckpointUpdate(checkpoint = {}) {
-    return {
-        id:
-            checkpoint.id ||
-            null,
-
-        title:
-            checkpoint.title ||
-            '',
-
-        isCompleted:
-            Boolean(
-                checkpoint.isCompleted
-            ),
-
-        imageLink:
-            checkpoint.imageLink ||
-            '',
-
-        fileUrl:
-            checkpoint.fileUrl ||
-            '',
-
-        fileName:
-            checkpoint.fileName ||
-            '',
-
-        note:
-            checkpoint.note ||
-            '',
-    };
 }
 
 
@@ -219,7 +154,29 @@ async function findDesignerProject(
         .populate(
             'assignedPresenter',
             'name email role'
+        )
+        .populate(
+            'assignedCoordinator',
+            'name email role'
         );
+}
+
+
+async function isTaskProjectAssignedToDesigner(task, designerId) {
+    const projectId =
+        task?.projectId?._id ||
+        task?.projectId;
+
+    if (!projectId || !isValidObjectId(projectId)) {
+        return false;
+    }
+
+    const project = await Project.exists({
+        _id: projectId,
+        ...designerProjectFilter(designerId),
+    });
+
+    return Boolean(project);
 }
 
 
@@ -241,6 +198,18 @@ router.get(
                     designerId
                 );
 
+            const assignedProjectIds =
+                await Project.distinct(
+                    '_id',
+                    projectFilter
+                );
+
+            const taskScope = {
+                assignedTo: designerId,
+                projectId: {
+                    $in: assignedProjectIds,
+                },
+            };
 
             const [
                 totalProjects,
@@ -265,30 +234,21 @@ router.get(
                     status: 'in-progress',
                 }),
 
+                Task.countDocuments(taskScope),
+
                 Task.countDocuments({
-                    assignedTo:
-                        designerId,
+                    ...taskScope,
+                    status: 'completed',
                 }),
 
                 Task.countDocuments({
-                    assignedTo:
-                        designerId,
-                    status:
-                        'completed',
+                    ...taskScope,
+                    status: 'pending',
                 }),
 
                 Task.countDocuments({
-                    assignedTo:
-                        designerId,
-                    status:
-                        'pending',
-                }),
-
-                Task.countDocuments({
-                    assignedTo:
-                        designerId,
-                    status:
-                        'in-progress',
+                    ...taskScope,
+                    status: 'in-progress',
                 }),
             ]);
 
@@ -354,6 +314,10 @@ router.get(
                     )
                     .populate(
                         'assignedPresenter',
+                        'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
                         'name email role'
                     )
                     .sort({
@@ -445,6 +409,428 @@ router.get(
 
 
 // ======================================================
+// CHECKPOINT FILE ACCESS
+// ======================================================
+//
+// Designers may upload/re-upload files for existing checkpoints.
+// They cannot create/delete checkpoints, change titles/notes,
+// or change isCompleted. Those actions belong to the Coordinator.
+//
+// ======================================================
+
+router.get(
+    '/projects/:projectId/checkpoints',
+    async (req, res) => {
+        try {
+            const project = await findDesignerProject(
+                req.params.projectId,
+                req.user.mongoId
+            );
+
+            if (!project) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        'Project not found or you are not assigned to it.',
+                });
+            }
+
+            const isMainDesigner =
+                String(
+                    project.assignedDesigner?._id ||
+                    project.assignedDesigner || ''
+                ) === String(req.user.mongoId);
+
+            if (!isMainDesigner) {
+                return res.status(403).json({
+                    success: false,
+                    message:
+                        'Only the main project designer can access checkpoint uploads.',
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                checkpoints: project.checkpoints || [],
+                data: project.checkpoints || [],
+            });
+        } catch (error) {
+            console.error('Designer get checkpoints error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to load checkpoints.',
+            });
+        }
+    }
+);
+
+
+router.put(
+    '/projects/:projectId/checkpoints/:checkpointId',
+    async (req, res) => {
+        try {
+            const { projectId, checkpointId } = req.params;
+
+            const project = await findDesignerProject(
+                projectId,
+                req.user.mongoId
+            );
+
+            if (!project) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        'Project not found or you are not assigned to it.',
+                });
+            }
+
+            const isMainDesigner =
+                String(
+                    project.assignedDesigner?._id ||
+                    project.assignedDesigner || ''
+                ) === String(req.user.mongoId);
+
+            if (!isMainDesigner) {
+                return res.status(403).json({
+                    success: false,
+                    message:
+                        'Only the main project designer can upload checkpoint files.',
+                });
+            }
+
+            const checkpoint = (project.checkpoints || []).find((item) =>
+                String(item._id || '') === String(checkpointId) ||
+                String(item.id || '') === String(checkpointId)
+            );
+
+            if (!checkpoint) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Checkpoint not found.',
+                });
+            }
+
+            const allowedFileFields = [
+                'fileUrl',
+                'imageLink',
+                'fileName',
+            ];
+
+            const providedFields = allowedFileFields.filter(
+                (field) => req.body[field] !== undefined
+            );
+
+            if (providedFields.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        'Provide fileUrl, imageLink, or fileName to update the checkpoint file.',
+                });
+            }
+
+            for (const field of providedFields) {
+                checkpoint[field] =
+                    typeof req.body[field] === 'string'
+                        ? req.body[field].trim()
+                        : '';
+            }
+
+            await project.save();
+
+            const updatedProject = await findDesignerProject(
+                projectId,
+                req.user.mongoId
+            );
+
+            const updatedCheckpoint = (updatedProject.checkpoints || []).find((item) =>
+                String(item._id || '') === String(checkpointId) ||
+                String(item.id || '') === String(checkpointId)
+            );
+
+            // Notify the Coordinator when a Designer submits/re-submits a file.
+            const coordinatorId =
+                updatedProject.assignedCoordinator?._id ||
+                updatedProject.assignedCoordinator;
+
+            if (coordinatorId) {
+                await createNotification({
+                    recipient: coordinatorId,
+                    sender: req.user.mongoId,
+                    type: 'checkpoint-file-submitted',
+                    title: 'تم رفع ملف مرحلة',
+                    message:
+                        `تم رفع أو تحديث ملف المرحلة "${updatedCheckpoint?.title || ''}" في مشروع "${updatedProject.projectName}".`,
+                    project: updatedProject._id,
+                    link: `/coordinator/projects/${updatedProject._id}`,
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: 'Checkpoint file updated successfully.',
+                checkpoint: updatedCheckpoint,
+                project: updatedProject,
+                data: updatedCheckpoint,
+            });
+        } catch (error) {
+            console.error('Designer update checkpoint file error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to update checkpoint file.',
+            });
+        }
+    }
+);
+
+
+// ======================================================
+// RENDER FILES
+// ======================================================
+//
+// Main Designer may upload/re-upload render files.
+// Render review/status remains controlled by Coordinator.
+//
+// ======================================================
+
+router.get(
+    '/projects/:projectId/render',
+    async (req, res) => {
+        try {
+            const project = await findDesignerProject(
+                req.params.projectId,
+                req.user.mongoId
+            );
+
+            if (!project) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        'Project not found or you are not assigned to it.',
+                });
+            }
+
+            const isMainDesigner =
+                String(project.assignedDesigner?._id || project.assignedDesigner || '') ===
+                String(req.user.mongoId);
+
+            if (!isMainDesigner) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only the main project designer can access render files.',
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                project,
+                data: project,
+            });
+        } catch (error) {
+            console.error('Designer get render error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to load render files.',
+            });
+        }
+    }
+);
+
+
+router.put(
+    '/projects/:projectId/render',
+    async (req, res) => {
+        try {
+            const project = await findDesignerProject(
+                req.params.projectId,
+                req.user.mongoId
+            );
+
+            if (!project) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        'Project not found or you are not assigned to it.',
+                });
+            }
+
+            const isMainDesigner =
+                String(project.assignedDesigner?._id || project.assignedDesigner || '') ===
+                String(req.user.mongoId);
+
+            if (!isMainDesigner) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only the main project designer can upload render files.',
+                });
+            }
+
+            if (req.body.renderFileLink !== undefined) {
+                project.renderFileLink = String(req.body.renderFileLink).trim();
+            }
+
+            if (req.body.renderFileName !== undefined) {
+                project.renderFileName = String(req.body.renderFileName).trim();
+            }
+
+            // Intentionally ignore renderStatus; review is Coordinator-only.
+            await project.save();
+
+            const updatedProject = await findDesignerProject(
+                req.params.projectId,
+                req.user.mongoId
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Render files updated successfully.',
+                project: updatedProject,
+                data: updatedProject,
+            });
+        } catch (error) {
+            console.error('Designer update render error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to update render files.',
+            });
+        }
+    }
+);
+
+
+// ======================================================
+// PRESENTATION FILES
+// ======================================================
+//
+// Presentation Designer may upload/re-upload the file and
+// add their note. Approval remains Coordinator-only.
+//
+// ======================================================
+
+router.get(
+    '/projects/:projectId/presentation',
+    async (req, res) => {
+        try {
+            const project = await findDesignerProject(
+                req.params.projectId,
+                req.user.mongoId
+            );
+
+            if (!project) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        'Project not found or you are not assigned to it.',
+                });
+            }
+
+            const isPresentationDesigner =
+                String(project.assignedPresenter?._id || project.assignedPresenter || '') ===
+                String(req.user.mongoId);
+
+            if (!isPresentationDesigner) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only the assigned presentation designer can access presentation files.',
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                presentation: {
+                    presentationFileLink: project.presentationFileLink || '',
+                    presentationFileName: project.presentationFileName || '',
+                    presenterNote: project.presenterNote || '',
+                    isPresentationApproved: Boolean(project.isPresentationApproved),
+                },
+                project,
+                data: project,
+            });
+        } catch (error) {
+            console.error('Designer get presentation error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to load presentation files.',
+            });
+        }
+    }
+);
+
+
+router.put(
+    '/projects/:projectId/presentation',
+    async (req, res) => {
+        try {
+            const project = await findDesignerProject(
+                req.params.projectId,
+                req.user.mongoId
+            );
+
+            if (!project) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        'Project not found or you are not assigned to it.',
+                });
+            }
+
+            const isPresentationDesigner =
+                String(project.assignedPresenter?._id || project.assignedPresenter || '') ===
+                String(req.user.mongoId);
+
+            if (!isPresentationDesigner) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only the assigned presentation designer can upload presentation files.',
+                });
+            }
+
+            if (req.body.presentationFileLink !== undefined) {
+                project.presentationFileLink =
+                    String(req.body.presentationFileLink).trim();
+            }
+
+            if (req.body.presentationFileName !== undefined) {
+                project.presentationFileName =
+                    String(req.body.presentationFileName).trim();
+            }
+
+            if (req.body.presenterNote !== undefined) {
+                project.presenterNote =
+                    String(req.body.presenterNote).trim();
+            }
+
+            // Never accept isPresentationApproved from Designer requests.
+            await project.save();
+
+            const updatedProject = await findDesignerProject(
+                req.params.projectId,
+                req.user.mongoId
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Presentation files updated successfully.',
+                presentation: {
+                    presentationFileLink: updatedProject.presentationFileLink || '',
+                    presentationFileName: updatedProject.presentationFileName || '',
+                    presenterNote: updatedProject.presenterNote || '',
+                    isPresentationApproved: Boolean(updatedProject.isPresentationApproved),
+                },
+                project: updatedProject,
+                data: updatedProject,
+            });
+        } catch (error) {
+            console.error('Designer update presentation error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to update presentation files.',
+            });
+        }
+    }
+);
+
+
+// ======================================================
 // UPDATE PROJECT WORK
 // ======================================================
 //
@@ -513,17 +899,10 @@ router.put(
             // Main Designer fields
             // --------------------------------------------------
 
-            if (
-                isMainDesigner &&
-                Array.isArray(
-                    req.body.checkpoints
-                )
-            ) {
-                project.checkpoints =
-                    req.body.checkpoints.map(
-                        buildCheckpointUpdate
-                    );
-            }
+            // Checkpoints are updated only through the dedicated
+            // file-upload endpoint below. Never accept a full
+            // checkpoint array from a Designer: that could let
+            // the Designer approve, remove, or rewrite checkpoints.
 
 
             if (
@@ -550,16 +929,8 @@ router.put(
             }
 
 
-            if (
-                isMainDesigner &&
-                req.body.renderStatus !==
-                    undefined
-            ) {
-                project.renderStatus =
-                    String(
-                        req.body.renderStatus
-                    );
-            }
+            // Render review/status is controlled by the Coordinator.
+            // A Designer may submit render files but cannot approve them.
 
 
             // --------------------------------------------------
@@ -602,20 +973,9 @@ router.put(
             }
 
 
-            // --------------------------------------------------
-            // Completion
-            // --------------------------------------------------
-
-            if (
-                isMainDesigner &&
-                req.body.isDoneAll !==
-                    undefined
-            ) {
-                project.isDoneAll =
-                    Boolean(
-                        req.body.isDoneAll
-                    );
-            }
+            // Project completion and checkpoint approval are
+            // reserved for the Coordinator / authorized managers.
+            // Ignore status, isDoneAll, and approval fields here.
 
 
             await project.save();
@@ -698,161 +1058,11 @@ router.put(
 router.put(
     '/projects/:projectId/status',
     async (req, res) => {
-        try {
-
-            const {
-                projectId,
-            } = req.params;
-
-            const {
-                status,
-            } = req.body;
-
-
-            const allowedStatuses = [
-                'in-progress',
-                'completed',
-            ];
-
-
-            if (
-                !allowedStatuses.includes(
-                    status
-                )
-            ) {
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        'Invalid project status.',
-                });
-            }
-
-
-            const project =
-                await findDesignerProject(
-                    projectId,
-                    req.user.mongoId
-                );
-
-
-            if (!project) {
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        'Project not found or you are not assigned to it.',
-                });
-            }
-
-
-            // Only main designer can mark the main
-            // project completed.
-            const isMainDesigner =
-                project.assignedDesigner &&
-                String(
-                    project.assignedDesigner._id ||
-                    project.assignedDesigner
-                ) ===
-                    String(
-                        req.user.mongoId
-                    );
-
-
-            if (!isMainDesigner) {
-                return res.status(403).json({
-                    success: false,
-                    message:
-                        'Only the main project designer can change the project status.',
-                });
-            }
-
-
-            project.status =
-                status;
-
-
-            if (
-                status === 'completed'
-            ) {
-                project.isDoneAll =
-                    true;
-            }
-
-
-            await project.save();
-
-
-            // --------------------------------------------------
-            // Notify Project Creator
-            // --------------------------------------------------
-
-            if (
-                project.createdBy &&
-                project.createdBy._id
-            ) {
-                await createNotification({
-                    recipient:
-                        project.createdBy._id,
-
-                    sender:
-                        req.user.mongoId,
-
-                    type:
-                        status === 'completed'
-                            ? 'project-completed'
-                            : 'project-updated',
-
-                    title:
-                        status === 'completed'
-                            ? 'تم إكمال المشروع'
-                            : 'تم تحديث حالة المشروع',
-
-                    message:
-                        status === 'completed'
-                            ? `تم إكمال مشروع "${project.projectName}".`
-                            : `تم تحديث حالة مشروع "${project.projectName}".`,
-
-                    project:
-                        project._id,
-
-                    link:
-                        `/manager/projects/${project._id}`,
-                });
-            }
-
-
-            const updatedProject =
-                await findDesignerProject(
-                    projectId,
-                    req.user.mongoId
-                );
-
-
-            return res.status(200).json({
-                success: true,
-
-                message:
-                    'Project status updated successfully.',
-
-                project:
-                    updatedProject,
-
-                data:
-                    updatedProject,
-            });
-
-        } catch (error) {
-
-            console.error(
-                '❌ Designer project status error:',
-                error
-            );
-
-            return res.status(500).json({
-                success: false,
-                message:
-                    'Failed to update project status.',
-            });
-        }
+        return res.status(403).json({
+            success: false,
+            message:
+                'Designer cannot change the project status. Please submit your work to the Coordinator for review.',
+        });
     }
 );
 
@@ -888,10 +1098,21 @@ router.get(
     async (req, res) => {
         try {
 
+            const assignedProjectIds =
+                await Project.distinct(
+                    '_id',
+                    designerProjectFilter(
+                        req.user.mongoId
+                    )
+                );
+
             const tasks =
                 await Task.find({
                     assignedTo:
                         req.user.mongoId,
+                    projectId: {
+                        $in: assignedProjectIds,
+                    },
                 })
                     .populate(
                         'projectId',
@@ -985,11 +1206,11 @@ router.get(
                     );
 
 
-            if (!task) {
+            if (!task || !(await isTaskProjectAssignedToDesigner(task, req.user.mongoId))) {
                 return res.status(404).json({
                     success: false,
                     message:
-                        'Task not found or it is not assigned to you.',
+                        'Task not found, not assigned to you, or its project is not assigned to you.',
                 });
             }
 
@@ -1065,11 +1286,11 @@ router.put(
                 });
 
 
-            if (!task) {
+            if (!task || !(await isTaskProjectAssignedToDesigner(task, req.user.mongoId))) {
                 return res.status(404).json({
                     success: false,
                     message:
-                        'Task not found or it is not assigned to you.',
+                        'Task not found, not assigned to you, or its project is not assigned to you.',
                 });
             }
 
@@ -1232,11 +1453,11 @@ router.put(
                 });
 
 
-            if (!task) {
+            if (!task || !(await isTaskProjectAssignedToDesigner(task, req.user.mongoId))) {
                 return res.status(404).json({
                     success: false,
                     message:
-                        'Task not found or it is not assigned to you.',
+                        'Task not found, not assigned to you, or its project is not assigned to you.',
                 });
             }
 

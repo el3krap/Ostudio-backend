@@ -20,7 +20,9 @@ import {
 
 import {
     getProjects,
-    getCoordinatorSummary
+    getCoordinatorSummary,
+    getAvailableCoordinators,
+    createProject
 } from '../../services/coordinatorService';
 
 /* =========================================================
@@ -162,6 +164,11 @@ export default function CoordinatorDashboard() {
         assigned: 0,
         presentationAssigned: 0
     });
+
+    const [coordinators, setCoordinators] = useState([]);
+    const [showCreateForm, setShowCreateForm] = useState(false);
+    const [creatingProject, setCreatingProject] = useState(false);
+    const [createForm, setCreateForm] = useState({ projectName: '', assignedCoordinator: '', brief: '', description: '', managerNotes: '', startDate: '', deadline: '' });
 
     const [
         loading,
@@ -321,6 +328,30 @@ export default function CoordinatorDashboard() {
             },
             []
         );
+
+    const openCreateForm = async () => {
+        setError('');
+        try {
+            const list = await getAvailableCoordinators();
+            setCoordinators(list);
+            setShowCreateForm(true);
+        } catch (err) { setError(err?.message || 'تعذر تحميل قائمة المسؤولين.'); }
+    };
+
+    const handleCreateProject = async (event) => {
+        event.preventDefault();
+        if (!createForm.projectName.trim() || !createForm.assignedCoordinator) {
+            setError('اكتب اسم المشروع واختار المسؤول المسند إليه.'); return;
+        }
+        try {
+            setCreatingProject(true); setError('');
+            await createProject(createForm);
+            setCreateForm({ projectName: '', assignedCoordinator: '', brief: '', description: '', managerNotes: '', startDate: '', deadline: '' });
+            setShowCreateForm(false);
+            await loadDashboard(true);
+        } catch (err) { setError(err?.message || 'حدث خطأ أثناء إنشاء المشروع.'); }
+        finally { setCreatingProject(false); }
+    };
 
     /* =====================================================
        Initial Load
@@ -832,6 +863,23 @@ export default function CoordinatorDashboard() {
                 {/* =================================================
                     Projects Section
                 ================================================= */}
+
+                <section className="projects-section create-project-panel">
+                    <div className="section-header">
+                        <div><h2>إنشاء مشروع جديد</h2><p>أنشئ المشروع وحدد الـ Coordinator المسؤول عنه.</p></div>
+                        {!showCreateForm && <button type="button" className="refresh-button" onClick={openCreateForm}>＋ إنشاء مشروع</button>}
+                    </div>
+                    {showCreateForm && <form onSubmit={handleCreateProject} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 18 }}>
+                        <label>اسم المشروع *<input required value={createForm.projectName} onChange={e => setCreateForm(v => ({ ...v, projectName: e.target.value }))} /></label>
+                        <label>المسؤول المسند إليه *<select required value={createForm.assignedCoordinator} onChange={e => setCreateForm(v => ({ ...v, assignedCoordinator: e.target.value }))}><option value="">اختار المسؤول</option>{coordinators.map(c => <option key={c._id} value={c._id}>{c.name || c.email}</option>)}</select></label>
+                        <label>تاريخ البداية<input type="date" value={createForm.startDate} onChange={e => setCreateForm(v => ({ ...v, startDate: e.target.value }))} /></label>
+                        <label>الموعد النهائي<input type="date" value={createForm.deadline} onChange={e => setCreateForm(v => ({ ...v, deadline: e.target.value }))} /></label>
+                        <label>الوصف<textarea value={createForm.description} onChange={e => setCreateForm(v => ({ ...v, description: e.target.value }))} /></label>
+                        <label>ملاحظات<textarea value={createForm.managerNotes} onChange={e => setCreateForm(v => ({ ...v, managerNotes: e.target.value }))} /></label>
+                        <label style={{ gridColumn: '1 / -1' }}>رابط/بيانات الـ Brief<input value={createForm.brief} onChange={e => setCreateForm(v => ({ ...v, brief: e.target.value }))} placeholder="أدخل رابط الملف إن كان مرفوعًا بالفعل" /></label>
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10 }}><button type="submit" className="refresh-button" disabled={creatingProject}>{creatingProject ? 'جارٍ الإنشاء...' : 'إنشاء وإسناد المشروع'}</button><button type="button" className="refresh-button" onClick={() => setShowCreateForm(false)}>إلغاء</button></div>
+                    </form>}
+                </section>
 
                 <section className="projects-section">
 

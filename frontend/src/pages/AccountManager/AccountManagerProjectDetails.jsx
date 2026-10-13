@@ -786,6 +786,15 @@ const AccountManagerProjectDetails = () => {
                                 </div>
 
                                 <div className="info-item">
+                                    <span>Coordinator المسؤول</span>
+                                    <strong>
+                                        {project.assignedCoordinator?.name ||
+                                            project.assignedCoordinator?.email ||
+                                            'غير محدد'}
+                                    </strong>
+                                </div>
+
+                                <div className="info-item">
 
                                     <span>
                                         الحالة

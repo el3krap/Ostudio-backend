@@ -1,82 +1,51 @@
-// backend/models/Project.js
-
 const mongoose = require('mongoose');
-
 
 // ======================================================
 // Checkpoint Schema
 // ======================================================
-
 const checkpointSchema = new mongoose.Schema(
     {
-        // --------------------------------------------------
-        // Legacy / Frontend Compatible ID
-        // --------------------------------------------------
-
+        // Legacy / frontend-compatible ID
         id: {
             type: String,
             default: null,
         },
 
-
-        // --------------------------------------------------
-        // Checkpoint Title
-        // --------------------------------------------------
-
+        // Checkpoint title
         title: {
             type: String,
             trim: true,
             default: '',
         },
 
-
-        // --------------------------------------------------
-        // Completion Status
-        // --------------------------------------------------
-
+        // Completion status
         isCompleted: {
             type: Boolean,
             default: false,
         },
 
-
-        // --------------------------------------------------
-        // Image Link
-        // --------------------------------------------------
-
+        // Image link
         imageLink: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // --------------------------------------------------
         // File URL
-        // --------------------------------------------------
-
         fileUrl: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // --------------------------------------------------
-        // File Name
-        // --------------------------------------------------
-
+        // File name
         fileName: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // --------------------------------------------------
-        // Checkpoint Note
-        // --------------------------------------------------
-
+        // Checkpoint note
         note: {
             type: String,
             default: '',
@@ -88,30 +57,23 @@ const checkpointSchema = new mongoose.Schema(
     }
 );
 
-
 // ======================================================
 // Project Schema
 // ======================================================
-
 const projectSchema = new mongoose.Schema(
     {
-        // ==================================================
-        // Basic Project Information
-        // ==================================================
-
+        // Basic project information
         projectName: {
             type: String,
             required: true,
             trim: true,
         },
 
-
         brief: {
             type: String,
             default: '',
             trim: true,
         },
-
 
         // Legacy field
         briefName: {
@@ -120,25 +82,14 @@ const projectSchema = new mongoose.Schema(
             trim: true,
         },
 
-
         description: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // ==================================================
-        // Project Creator
-        // ==================================================
-        //
-        // IMPORTANT:
-        // This must always be set by the Backend using
-        // req.user.mongoId.
-        //
-        // Never trust createdBy from the frontend.
-        // ==================================================
-
+        // Project creator is set by the backend using req.user.mongoId.
+        // Never trust createdBy supplied by the frontend.
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -146,38 +97,34 @@ const projectSchema = new mongoose.Schema(
             index: true,
         },
 
-
-        // ==================================================
-        // Manager Notes
-        // ==================================================
-
+        // Manager notes
         managerNotes: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // ==================================================
         // Dates
-        // ==================================================
-
         startDate: {
             type: Date,
             default: null,
         },
-
 
         deadline: {
             type: Date,
             default: null,
         },
 
+        // Coordinator assigned to follow up on this project.
+        // Optional for backward compatibility with existing projects.
+        assignedCoordinator: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+            index: true,
+        },
 
-        // ==================================================
-        // Main Project Designer
-        // ==================================================
-
+        // Main project designer
         assignedDesigner: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -185,15 +132,12 @@ const projectSchema = new mongoose.Schema(
             index: true,
         },
 
-
         // Legacy / compatibility fields
-
         assignedDesignerId: {
             type: String,
             default: '',
             trim: true,
         },
-
 
         assignedDesignerName: {
             type: String,
@@ -201,37 +145,24 @@ const projectSchema = new mongoose.Schema(
             trim: true,
         },
 
-
-        // ==================================================
         // Checkpoints
-        // ==================================================
-
         checkpoints: {
             type: [checkpointSchema],
             default: [],
         },
 
-
-        // ==================================================
-        // Project Completion
-        // ==================================================
-
+        // Project completion
         isDoneAll: {
             type: Boolean,
             default: false,
         },
 
-
-        // ==================================================
-        // Render Files
-        // ==================================================
-
+        // Render files
         renderFileLink: {
             type: String,
             default: '',
             trim: true,
         },
-
 
         renderFileName: {
             type: String,
@@ -239,23 +170,13 @@ const projectSchema = new mongoose.Schema(
             trim: true,
         },
 
-
         renderStatus: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // ==================================================
-        // Presentation Designer
-        // ==================================================
-        //
-        // IMPORTANT:
-        // Presentation Designer is independent from the
-        // Main Project Designer.
-        // ==================================================
-
+        // Presentation designer is independent from the main project designer.
         assignedPresenter: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -263,15 +184,12 @@ const projectSchema = new mongoose.Schema(
             index: true,
         },
 
-
         // Legacy / compatibility fields
-
         assignedPresenterId: {
             type: String,
             default: '',
             trim: true,
         },
-
 
         assignedPresenterName: {
             type: String,
@@ -279,17 +197,12 @@ const projectSchema = new mongoose.Schema(
             trim: true,
         },
 
-
-        // ==================================================
-        // Presentation Files
-        // ==================================================
-
+        // Presentation files
         presentationFileLink: {
             type: String,
             default: '',
             trim: true,
         },
-
 
         presentationFileName: {
             type: String,
@@ -297,190 +210,113 @@ const projectSchema = new mongoose.Schema(
             trim: true,
         },
 
-
         presenterNote: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // ==================================================
-        // Coordinator Notes
-        // ==================================================
-
+        // Coordinator notes
         coordinatorNotes: {
             type: String,
             default: '',
             trim: true,
         },
 
-
-        // ==================================================
-        // Presentation Approval
-        // ==================================================
-
+        // Presentation approval
         isPresentationApproved: {
             type: Boolean,
             default: false,
         },
 
-
-        // ==================================================
-        // Project Status
-        // ==================================================
-
+        // Project status
         status: {
             type: String,
-            enum: [
-                'in-progress',
-                'completed',
-            ],
+            enum: ['in-progress', 'completed'],
             default: 'in-progress',
             index: true,
         },
     },
-
     {
         timestamps: true,
     }
 );
 
-
 // ======================================================
 // Indexes
 // ======================================================
-
 projectSchema.index({
     createdBy: 1,
     createdAt: -1,
 });
 
-projectSchema.index({
-    assignedDesigner: 1,
-});
-
-projectSchema.index({
-    assignedPresenter: 1,
-});
-
-projectSchema.index({
-    status: 1,
-});
-
-projectSchema.index({
-    deadline: 1,
-});
-
+projectSchema.index({ assignedCoordinator: 1 });
+projectSchema.index({ assignedDesigner: 1 });
+projectSchema.index({ assignedPresenter: 1 });
+projectSchema.index({ status: 1 });
+projectSchema.index({ deadline: 1 });
 
 // ======================================================
 // Virtual - Checkpoint Progress
 // ======================================================
+projectSchema.virtual('checkpointProgress').get(function () {
+    const checkpoints = Array.isArray(this.checkpoints)
+        ? this.checkpoints
+        : [];
 
-projectSchema.virtual('checkpointProgress').get(
-    function () {
-        const checkpoints =
-            Array.isArray(this.checkpoints)
-                ? this.checkpoints
-                : [];
-
-        if (checkpoints.length === 0) {
-            return 0;
-        }
-
-        const completed =
-            checkpoints.filter(
-                (checkpoint) =>
-                    checkpoint.isCompleted === true
-            ).length;
-
-        return Math.round(
-            (completed / checkpoints.length) * 100
-        );
+    if (checkpoints.length === 0) {
+        return 0;
     }
-);
 
+    const completed = checkpoints.filter(
+        (checkpoint) => checkpoint.isCompleted === true
+    ).length;
+
+    return Math.round((completed / checkpoints.length) * 100);
+});
 
 // ======================================================
 // Virtual - Is Assigned
 // ======================================================
-
-projectSchema.virtual('isAssigned').get(
-    function () {
-        return Boolean(
-            this.assignedDesigner ||
-            this.assignedPresenter
-        );
-    }
-);
-
+projectSchema.virtual('isAssigned').get(function () {
+    return Boolean(this.assignedDesigner || this.assignedPresenter);
+});
 
 // ======================================================
 // Virtual - Is Fully Assigned
 // ======================================================
+projectSchema.virtual('isFullyAssigned').get(function () {
+    return Boolean(this.assignedDesigner && this.assignedPresenter);
+});
 
-projectSchema.virtual('isFullyAssigned').get(
-    function () {
-        return Boolean(
-            this.assignedDesigner &&
-            this.assignedPresenter
-        );
+// ======================================================
+// Convert Virtuals to JSON / Object
+// ======================================================
+projectSchema.set('toJSON', {
+    virtuals: true,
+});
+
+projectSchema.set('toObject', {
+    virtuals: true,
+});
+
+// ======================================================
+// Pre-save - Keep Legacy Assignment Fields in Sync
+// ======================================================
+// Authorization and validation of assigned users must be handled by backend routes.
+projectSchema.pre('save', function (next) {
+    if (!this.assignedDesigner) {
+        this.assignedDesignerId = '';
     }
-);
 
-
-// ======================================================
-// Convert Virtuals to JSON
-// ======================================================
-
-projectSchema.set(
-    'toJSON',
-    {
-        virtuals: true,
+    if (!this.assignedPresenter) {
+        this.assignedPresenterId = '';
     }
-);
 
-projectSchema.set(
-    'toObject',
-    {
-        virtuals: true,
-    }
-);
-
-
-// ======================================================
-// Pre Save - Keep Legacy Assignment Fields in Sync
-// ======================================================
-//
-// This keeps the compatibility fields synchronized when
-// the referenced User documents are populated/available.
-//
-// The actual assignment authorization is handled by the
-// Backend routes, not by this model.
-// ======================================================
-
-projectSchema.pre(
-    'save',
-    function (next) {
-
-        if (!this.assignedDesigner) {
-            this.assignedDesignerId = '';
-        }
-
-        if (!this.assignedPresenter) {
-            this.assignedPresenterId = '';
-        }
-
-        next();
-    }
-);
-
+    next();
+});
 
 // ======================================================
 // Export
 // ======================================================
-
-module.exports = mongoose.model(
-    'Project',
-    projectSchema
-);
+module.exports = mongoose.model('Project', projectSchema);

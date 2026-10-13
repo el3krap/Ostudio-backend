@@ -1038,6 +1038,22 @@ const AdminProjects = () => {
                                                     </strong>
                                                 </div>
 
+                                                <div>
+                                                    <span>
+                                                        Coordinator
+                                                    </span>
+
+                                                    <strong>
+                                                        {getUserName(
+                                                            project?.assignedCoordinator
+                                                        ) !== 'غير معين'
+                                                            ? getUserName(
+                                                                project?.assignedCoordinator
+                                                            )
+                                                            : 'غير معين'}
+                                                    </strong>
+                                                </div>
+
                                             </div>
 
                                             <div className="card-actions">

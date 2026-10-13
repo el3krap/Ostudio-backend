@@ -54,6 +54,19 @@ async function accountManagerRequest(endpoint, options = {}) {
 }
 
 /* =========================================================
+   Get Active Coordinators
+========================================================= */
+
+async function getActiveCoordinators() {
+    const response = await accountManagerRequest('/account-manager/coordinators');
+    return Array.isArray(response?.coordinators)
+        ? response.coordinators
+        : Array.isArray(response?.data)
+            ? response.data
+            : [];
+}
+
+/* =========================================================
    Get My Projects
 ========================================================= */
 
@@ -105,29 +118,26 @@ async function getMyProject(projectId) {
 async function createProject(projectData = {}) {
     const {
         projectName,
+        assignedCoordinator,
         brief,
         briefName,
         managerNotes,
         description,
         startDate,
-        deadline,
-        checkpoints,
-        renderFileLink,
-        renderFileName,
-        renderStatus,
-        presentationFileLink,
-        presentationFileName,
-        presenterNote,
-        coordinatorNotes,
-        status
+        deadline
     } = projectData;
 
     if (!projectName?.trim()) {
         throw new Error('اسم المشروع مطلوب.');
     }
 
+    if (!assignedCoordinator) {
+        throw new Error('اختار الـ Coordinator المسؤول عن المشروع.');
+    }
+
     const payload = {
         projectName: projectName.trim(),
+        assignedCoordinator,
 
         brief: brief || '',
         briefName: briefName || '',
@@ -138,26 +148,6 @@ async function createProject(projectData = {}) {
         startDate: startDate || null,
         deadline: deadline || null,
 
-        checkpoints: Array.isArray(checkpoints)
-            ? checkpoints
-            : [],
-
-        renderFileLink: renderFileLink || '',
-        renderFileName: renderFileName || '',
-        renderStatus: renderStatus || '',
-
-        presentationFileLink:
-            presentationFileLink || '',
-
-        presentationFileName:
-            presentationFileName || '',
-
-        presenterNote: presenterNote || '',
-
-        coordinatorNotes:
-            coordinatorNotes || '',
-
-        status: status || 'in-progress'
     };
 
     const response = await accountManagerRequest(
@@ -299,6 +289,7 @@ async function getAccountManagerDashboardData() {
 
 export {
     accountManagerRequest,
+    getActiveCoordinators,
 
     getMyProjects,
     getMyProject,
@@ -313,6 +304,7 @@ export {
 };
 
 export default {
+    getActiveCoordinators,
     getMyProjects,
     getMyProject,
     createProject,

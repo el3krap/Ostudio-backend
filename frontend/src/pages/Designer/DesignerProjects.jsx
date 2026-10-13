@@ -1,4 +1,4 @@
-// frontend/src/pages/Designer/DesignerProjects.jsx
+// frontend/src/pages/Manager/ManagerProjects.jsx
 
 import React, {
     useCallback,
@@ -21,8 +21,11 @@ import {
 } from '../../services/authService';
 
 import {
-    getMyProjects
-} from '../../services/designerService';
+    getProjects,
+    createProject,
+    uploadProjectBrief,
+    deleteProject
+} from '../../services/managerService';
 
 
 /* =========================================================
@@ -37,24 +40,6 @@ function getId(item) {
         item.id ||
         item.mongoId ||
         ''
-    );
-}
-
-function getProjectName(project) {
-    return (
-        project?.projectName ||
-        project?.name ||
-        project?.title ||
-        'مشروع بدون اسم'
-    );
-}
-
-function getProjectDescription(project) {
-    return (
-        project?.brief ||
-        project?.description ||
-        project?.briefName ||
-        'لا يوجد وصف للمشروع.'
     );
 }
 
@@ -78,7 +63,7 @@ function formatDate(value) {
         'ar-EG',
         {
             year: 'numeric',
-            month: 'long',
+            month: 'short',
             day: 'numeric'
         }
     );
@@ -124,63 +109,82 @@ function getStatusClass(status) {
     }
 }
 
-function getAssignmentType(project) {
-    const designerId =
-        project?.assignedDesignerId ||
-        getId(
-            project?.assignedDesigner
-        );
+function getDesignerName(project) {
+    return (
+        project?.assignedDesigner?.name ||
+        project?.assignedDesigner?.displayName ||
+        project?.assignedDesignerName ||
+        project?.assignedDesigner?.email ||
+        'غير معين'
+    );
+}
 
-    const presenterId =
-        project?.assignedPresenterId ||
-        getId(
-            project?.assignedPresenter
+function getPresenterName(project) {
+    return (
+        project?.assignedPresenter?.name ||
+        project?.assignedPresenter?.displayName ||
+        project?.assignedPresenterName ||
+        project?.assignedPresenter?.email ||
+        'غير معين'
+    );
+}
+
+function getCheckpointProgress(project) {
+    const checkpoints =
+        Array.isArray(
+            project?.checkpoints
+        )
+            ? project.checkpoints
+            : [];
+
+    if (
+        checkpoints.length === 0
+    ) {
+        return 0;
+    }
+
+    const completed =
+        checkpoints.filter(
+            (checkpoint) =>
+                Boolean(
+                    checkpoint?.isCompleted
+                )
+        ).length;
+
+    return Math.round(
+        (
+            completed /
+            checkpoints.length
+        ) *
+        100
+    );
+}
+
+function isOverdue(project) {
+    if (
+        !project?.deadline ||
+        project?.status === 'completed'
+    ) {
+        return false;
+    }
+
+    const deadline =
+        new Date(
+            project.deadline
         );
 
     if (
-        designerId &&
-        presenterId &&
-        String(designerId) ===
-            String(presenterId)
+        Number.isNaN(
+            deadline.getTime()
+        )
     ) {
-        return 'both';
+        return false;
     }
 
-    if (designerId) {
-        return 'main';
-    }
-
-    if (presenterId) {
-        return 'presentation';
-    }
-
-    return 'assigned';
-}
-
-function getAssignmentLabel(project) {
-    switch (
-        getAssignmentType(project)
-    ) {
-        case 'main':
-            return 'مصمم المشروع';
-
-        case 'presentation':
-            return 'مصمم العرض';
-
-        case 'both':
-            return 'مصمم المشروع والعرض';
-
-        default:
-            return 'مشروع متعيّن';
-    }
-}
-
-function isCompleted(status) {
-    return [
-        'completed',
-        'complete',
-        'done'
-    ].includes(status);
+    return (
+        deadline.getTime() <
+        Date.now()
+    );
 }
 
 
@@ -188,7 +192,7 @@ function isCompleted(status) {
    Component
 ========================================================= */
 
-export default function DesignerProjects() {
+export default function ManagerProjects() {
     const navigate =
         useNavigate();
 
@@ -201,7 +205,13 @@ export default function DesignerProjects() {
     const [loading, setLoading] =
         useState(true);
 
+    const [refreshing, setRefreshing] =
+        useState(false);
+
     const [error, setError] =
+        useState('');
+
+    const [success, setSuccess] =
         useState('');
 
     const [search, setSearch] =
@@ -213,9 +223,42 @@ export default function DesignerProjects() {
     const [assignmentFilter, setAssignmentFilter] =
         useState('all');
 
+    const [deadlineFilter, setDeadlineFilter] =
+        useState('all');
+
+    const [sortBy, setSortBy] =
+        useState('newest');
+
+    const [showCreateModal, setShowCreateModal] =
+        useState(false);
+
+    const [showDeleteModal, setShowDeleteModal] =
+        useState(false);
+
+    const [projectToDelete, setProjectToDelete] =
+        useState(null);
+
+    const [saving, setSaving] =
+        useState(false);
+
+    const [deleting, setDeleting] =
+        useState(false);
+
+    const [form, setForm] =
+        useState({
+            projectName: '',
+            brief: '',
+            briefName: '',
+            briefFile: null,
+            description: '',
+            startDate: '',
+            deadline: '',
+            managerNotes: ''
+        });
+
 
     /* =====================================================
-       Authentication
+       Verify User
     ===================================================== */
 
     const verifyUser =
@@ -236,7 +279,7 @@ export default function DesignerProjects() {
 
             if (
                 currentUser.role !==
-                'designer'
+                'manager'
             ) {
                 navigate(
                     '/login',
@@ -248,7 +291,9 @@ export default function DesignerProjects() {
                 return null;
             }
 
-            setUser(currentUser);
+            setUser(
+                currentUser
+            );
 
             return currentUser;
         }, [navigate]);
@@ -259,247 +304,269 @@ export default function DesignerProjects() {
     ===================================================== */
 
     const loadProjects =
-        useCallback(async () => {
-            try {
-                setLoading(true);
-                setError('');
+        useCallback(
+            async (
+                showLoader = true
+            ) => {
+                try {
+                    if (showLoader) {
+                        setLoading(true);
+                    } else {
+                        setRefreshing(true);
+                    }
 
-                const currentUser =
-                    verifyUser();
+                    setError('');
 
-                if (!currentUser) {
-                    return;
-                }
+                    const currentUser =
+                        verifyUser();
 
-                const data =
-                    await getMyProjects();
+                    if (!currentUser) {
+                        return;
+                    }
 
-                setProjects(
-                    Array.isArray(data)
-                        ? data
-                        : []
-                );
-            } catch (err) {
-                console.error(
-                    'Designer Projects Error:',
-                    err
-                );
+                    const result =
+                        await getProjects();
 
-                if (
-                    err?.status === 401 ||
-                    err?.status === 403
-                ) {
-                    navigate(
-                        '/login',
-                        {
-                            replace: true
-                        }
+                    setProjects(
+                        Array.isArray(result)
+                            ? result
+                            : []
+                    );
+                } catch (err) {
+                    console.error(
+                        'Load manager projects error:',
+                        err
                     );
 
-                    return;
-                }
+                    if (
+                        err?.status === 401 ||
+                        err?.status === 403
+                    ) {
+                        navigate(
+                            '/login',
+                            {
+                                replace: true
+                            }
+                        );
 
-                setError(
-                    err?.message ||
-                    'حدث خطأ أثناء تحميل المشاريع.'
-                );
-            } finally {
-                setLoading(false);
-            }
-        }, [
-            navigate,
-            verifyUser
-        ]);
+                        return;
+                    }
+
+                    setError(
+                        err?.message ||
+                        'تعذر تحميل المشاريع.'
+                    );
+                } finally {
+                    if (showLoader) {
+                        setLoading(false);
+                    } else {
+                        setRefreshing(false);
+                    }
+                }
+            },
+            [
+                navigate,
+                verifyUser
+            ]
+        );
 
 
     useEffect(() => {
         loadProjects();
-    }, [loadProjects]);
+    }, [
+        loadProjects
+    ]);
 
 
     /* =====================================================
-       Filter Projects
+       Form
     ===================================================== */
 
-    const filteredProjects =
-        useMemo(() => {
-            const normalizedSearch =
-                search
-                    .trim()
-                    .toLowerCase();
-
-            return projects.filter(
-                (project) => {
-                    const name =
-                        getProjectName(
-                            project
-                        ).toLowerCase();
-
-                    const description =
-                        getProjectDescription(
-                            project
-                        ).toLowerCase();
-
-                    const matchesSearch =
-                        !normalizedSearch ||
-                        name.includes(
-                            normalizedSearch
-                        ) ||
-                        description.includes(
-                            normalizedSearch
-                        );
-
-                    const status =
-                        project?.status;
-
-                    const matchesStatus =
-                        statusFilter ===
-                            'all' ||
-                        (
-                            statusFilter ===
-                                'active' &&
-                            !isCompleted(
-                                status
-                            )
-                        ) ||
-                        (
-                            statusFilter ===
-                                'completed' &&
-                            isCompleted(
-                                status
-                            )
-                        ) ||
-                        (
-                            statusFilter ===
-                                'in-progress' &&
-                            [
-                                'in-progress',
-                                'in_progress',
-                                'progress'
-                            ].includes(
-                                status
-                            )
-                        ) ||
-                        (
-                            statusFilter ===
-                                'pending' &&
-                            status ===
-                                'pending'
-                        );
-
-                    const assignment =
-                        getAssignmentType(
-                            project
-                        );
-
-                    const matchesAssignment =
-                        assignmentFilter ===
-                            'all' ||
-                        (
-                            assignmentFilter ===
-                                'main' &&
-                            assignment ===
-                                'main'
-                        ) ||
-                        (
-                            assignmentFilter ===
-                                'presentation' &&
-                            assignment ===
-                                'presentation'
-                        ) ||
-                        (
-                            assignmentFilter ===
-                                'both' &&
-                            assignment ===
-                                'both'
-                        );
-
-                    return (
-                        matchesSearch &&
-                        matchesStatus &&
-                        matchesAssignment
-                    );
-                }
-            );
-        }, [
-            projects,
-            search,
-            statusFilter,
-            assignmentFilter
-        ]);
-
-
-    /* =====================================================
-       Statistics
-    ===================================================== */
-
-    const statistics =
-        useMemo(() => {
-            const total =
-                projects.length;
-
-            const completed =
-                projects.filter(
-                    (project) =>
-                        isCompleted(
-                            project?.status
-                        )
-                ).length;
-
-            const active =
-                total -
-                completed;
-
-            const main =
-                projects.filter(
-                    (project) =>
-                        getAssignmentType(
-                            project
-                        ) === 'main'
-                ).length;
-
-            const presentation =
-                projects.filter(
-                    (project) =>
-                        getAssignmentType(
-                            project
-                        ) === 'presentation'
-                ).length;
-
-            const both =
-                projects.filter(
-                    (project) =>
-                        getAssignmentType(
-                            project
-                        ) === 'both'
-                ).length;
-
-            return {
-                total,
-                completed,
-                active,
-                main,
-                presentation,
-                both
-            };
-        }, [projects]);
-
-
-    /* =====================================================
-       Navigation
-    ===================================================== */
-
-    const openProject =
-        (projectId) => {
-            if (!projectId) {
-                return;
-            }
-
-            navigate(
-                `/designer/projects/${projectId}`
+    const updateForm =
+        (field, value) => {
+            setForm(
+                (previous) => ({
+                    ...previous,
+                    [field]: value
+                })
             );
         };
 
+
+    const resetForm =
+        () => {
+            setForm({
+                projectName: '',
+                brief: '',
+                briefName: '',
+                briefFile: null,
+                description: '',
+                startDate: '',
+                deadline: '',
+                managerNotes: ''
+            });
+        };
+
+
+    /* =====================================================
+       Create Project
+    ===================================================== */
+
+    const handleCreateProject =
+        async (event) => {
+            event.preventDefault();
+
+            if (
+                !form.projectName.trim()
+            ) {
+                setError(
+                    'اسم المشروع مطلوب.'
+                );
+
+                return;
+            }
+
+            try {
+                setSaving(true);
+                setError('');
+                setSuccess('');
+
+                let briefUpload = { url: form.brief || '', fileName: form.briefName || '' };
+                if (form.briefFile) {
+                    briefUpload = await uploadProjectBrief(form.briefFile);
+                }
+
+                await createProject({
+                    projectName:
+                        form.projectName.trim(),
+
+                    brief: briefUpload.url,
+                    briefName: briefUpload.fileName,
+managerNotes:
+                        form.managerNotes.trim(),
+
+                    status:
+                        'in-progress'
+                });
+
+                resetForm();
+
+                setShowCreateModal(
+                    false
+                );
+
+                setSuccess(
+                    'تم إنشاء المشروع بنجاح وتم إرسال إشعار للـ Coordinators.'
+                );
+
+                await loadProjects(
+                    false
+                );
+            } catch (err) {
+                console.error(
+                    'Create manager project error:',
+                    err
+                );
+
+                setError(
+                    err?.message ||
+                    'تعذر إنشاء المشروع.'
+                );
+            } finally {
+                setSaving(false);
+            }
+        };
+
+
+    /* =====================================================
+       Delete Project
+    ===================================================== */
+
+    const openDeleteModal =
+        (project) => {
+            setProjectToDelete(
+                project
+            );
+
+            setShowDeleteModal(
+                true
+            );
+
+            setError('');
+        };
+
+
+    const handleDeleteProject =
+        async () => {
+            if (
+                !projectToDelete
+            ) {
+                return;
+            }
+
+            const projectId =
+                getId(
+                    projectToDelete
+                );
+
+            if (!projectId) {
+                setError(
+                    'معرف المشروع غير موجود.'
+                );
+
+                return;
+            }
+
+            try {
+                setDeleting(true);
+                setError('');
+                setSuccess('');
+
+                await deleteProject(
+                    projectId
+                );
+
+                setProjects(
+                    (previous) =>
+                        previous.filter(
+                            (project) =>
+                                getId(
+                                    project
+                                ) !==
+                                projectId
+                        )
+                );
+
+                setShowDeleteModal(
+                    false
+                );
+
+                setProjectToDelete(
+                    null
+                );
+
+                setSuccess(
+                    'تم حذف المشروع بنجاح.'
+                );
+            } catch (err) {
+                console.error(
+                    'Delete manager project error:',
+                    err
+                );
+
+                setError(
+                    err?.message ||
+                    'تعذر حذف المشروع.'
+                );
+            } finally {
+                setDeleting(false);
+            }
+        };
+
+
+    /* =====================================================
+       Logout
+    ===================================================== */
 
     const handleLogout =
         async () => {
@@ -522,6 +589,326 @@ export default function DesignerProjects() {
 
 
     /* =====================================================
+       Filtering
+    ===================================================== */
+
+    const filteredProjects =
+        useMemo(() => {
+            let result =
+                [...projects];
+
+            const query =
+                search
+                    .trim()
+                    .toLowerCase();
+
+            if (query) {
+                result =
+                    result.filter(
+                        (project) => {
+                            const searchable =
+                                [
+                                    project?.projectName,
+                                    project?.brief,
+                                    project?.briefName,
+                                    project?.description,
+                                    project?.managerNotes,
+                                    project?.coordinatorNotes,
+                                    project?.assignedDesignerName,
+                                    project?.assignedPresenterName,
+                                    project?.assignedDesigner?.name,
+                                    project?.assignedPresenter?.name
+                                ]
+                                    .filter(Boolean)
+                                    .join(' ')
+                                    .toLowerCase();
+
+                            return searchable.includes(
+                                query
+                            );
+                        }
+                    );
+            }
+
+            if (
+                statusFilter !==
+                'all'
+            ) {
+                result =
+                    result.filter(
+                        (project) =>
+                            project?.status ===
+                            statusFilter
+                    );
+            }
+
+            if (
+                assignmentFilter !==
+                'all'
+            ) {
+                result =
+                    result.filter(
+                        (project) => {
+                            const hasDesigner =
+                                Boolean(
+                                    project?.assignedDesigner ||
+                                    project?.assignedDesignerId ||
+                                    project?.assignedDesignerName
+                                );
+
+                            const hasPresenter =
+                                Boolean(
+                                    project?.assignedPresenter ||
+                                    project?.assignedPresenterId ||
+                                    project?.assignedPresenterName
+                                );
+
+                            if (
+                                assignmentFilter ===
+                                'assigned'
+                            ) {
+                                return (
+                                    hasDesigner ||
+                                    hasPresenter
+                                );
+                            }
+
+                            if (
+                                assignmentFilter ===
+                                'fully-assigned'
+                            ) {
+                                return (
+                                    hasDesigner &&
+                                    hasPresenter
+                                );
+                            }
+
+                            if (
+                                assignmentFilter ===
+                                'unassigned'
+                            ) {
+                                return (
+                                    !hasDesigner &&
+                                    !hasPresenter
+                                );
+                            }
+
+                            return true;
+                        }
+                    );
+            }
+
+            if (
+                deadlineFilter !==
+                'all'
+            ) {
+                result =
+                    result.filter(
+                        (project) => {
+                            const overdue =
+                                isOverdue(
+                                    project
+                                );
+
+                            const hasDeadline =
+                                Boolean(
+                                    project?.deadline
+                                );
+
+                            if (
+                                deadlineFilter ===
+                                'overdue'
+                            ) {
+                                return overdue;
+                            }
+
+                            if (
+                                deadlineFilter ===
+                                'with-deadline'
+                            ) {
+                                return (
+                                    hasDeadline &&
+                                    !overdue
+                                );
+                            }
+
+                            if (
+                                deadlineFilter ===
+                                'no-deadline'
+                            ) {
+                                return !hasDeadline;
+                            }
+
+                            return true;
+                        }
+                    );
+            }
+
+            result.sort(
+                (
+                    a,
+                    b
+                ) => {
+                    if (
+                        sortBy ===
+                        'oldest'
+                    ) {
+                        return (
+                            new Date(
+                                a?.createdAt ||
+                                0
+                            ).getTime() -
+                            new Date(
+                                b?.createdAt ||
+                                0
+                            ).getTime()
+                        );
+                    }
+
+                    if (
+                        sortBy ===
+                        'deadline'
+                    ) {
+                        return (
+                            new Date(
+                                a?.deadline ||
+                                '9999-12-31'
+                            ).getTime() -
+                            new Date(
+                                b?.deadline ||
+                                '9999-12-31'
+                            ).getTime()
+                        );
+                    }
+
+                    if (
+                        sortBy ===
+                        'name'
+                    ) {
+                        return (
+                            String(
+                                a?.projectName ||
+                                ''
+                            )
+                                .localeCompare(
+                                    String(
+                                        b?.projectName ||
+                                        ''
+                                    ),
+                                    'ar'
+                                )
+                        );
+                    }
+
+                    return (
+                        new Date(
+                            b?.createdAt ||
+                            0
+                        ).getTime() -
+                        new Date(
+                            a?.createdAt ||
+                            0
+                        ).getTime()
+                    );
+                }
+            );
+
+            return result;
+        }, [
+            projects,
+            search,
+            statusFilter,
+            assignmentFilter,
+            deadlineFilter,
+            sortBy
+        ]);
+
+
+    /* =====================================================
+       Statistics
+    ===================================================== */
+
+    const statistics =
+        useMemo(() => {
+            const total =
+                projects.length;
+
+            const completed =
+                projects.filter(
+                    (project) =>
+                        project?.status ===
+                            'completed' ||
+                        project?.status ===
+                            'complete' ||
+                        project?.status ===
+                            'done'
+                ).length;
+
+            const inProgress =
+                projects.filter(
+                    (project) =>
+                        project?.status ===
+                            'in-progress' ||
+                        project?.status ===
+                            'in_progress' ||
+                        project?.status ===
+                            'progress'
+                ).length;
+
+            const pending =
+                projects.filter(
+                    (project) =>
+                        project?.status ===
+                        'pending'
+                ).length;
+
+            const assigned =
+                projects.filter(
+                    (project) =>
+                        Boolean(
+                            project?.assignedDesigner ||
+                            project?.assignedDesignerId ||
+                            project?.assignedPresenter ||
+                            project?.assignedPresenterId
+                        )
+                ).length;
+
+            const fullyAssigned =
+                projects.filter(
+                    (project) =>
+                        Boolean(
+                            project?.assignedDesigner ||
+                            project?.assignedDesignerId
+                        ) &&
+                        Boolean(
+                            project?.assignedPresenter ||
+                            project?.assignedPresenterId
+                        )
+                ).length;
+
+            const overdue =
+                projects.filter(
+                    (project) =>
+                        isOverdue(
+                            project
+                        )
+                ).length;
+
+            return {
+                total,
+                completed,
+                inProgress,
+                pending,
+                assigned,
+                fullyAssigned,
+                overdue
+            };
+        }, [
+            projects
+        ]);
+
+
+    /* =====================================================
        Loading
     ===================================================== */
 
@@ -540,7 +927,7 @@ export default function DesignerProjects() {
     ===================================================== */
 
     return (
-        <div className="designer-projects-page">
+        <div className="manager-projects-page">
 
             <Navbar
                 user={user}
@@ -560,16 +947,16 @@ export default function DesignerProjects() {
                     <div>
 
                         <div className="page-kicker">
-                            DESIGNER WORKSPACE
+                            MANAGER / PROJECTS
                         </div>
 
                         <h1>
-                            مشاريعي
+                            كل المشاريع
                         </h1>
 
                         <p>
-                            جميع المشاريع التي تم تعيينك
-                            عليها من خلال نظام OSTUDIO.
+                            إدارة ومتابعة جميع مشاريع
+                            Ostudio من مكان واحد.
                         </p>
 
                     </div>
@@ -577,23 +964,97 @@ export default function DesignerProjects() {
 
                     <div className="header-actions">
 
-                        <button
-                            type="button"
-                            className="refresh-button"
-                            onClick={
-                                loadProjects
-                            }
-                        >
-                            ↻ تحديث
-                        </button>
-
                         <NotificationBell
                             user={user}
                         />
 
+                        <button
+                            type="button"
+                            className="refresh-button"
+                            disabled={
+                                refreshing
+                            }
+                            onClick={() =>
+                                loadProjects(
+                                    false
+                                )
+                            }
+                        >
+                            {refreshing
+                                ? 'جاري التحديث...'
+                                : '↻ تحديث'}
+                        </button>
+
+                        <button
+                            type="button"
+                            className="create-button"
+                            onClick={() => {
+                                setError('');
+                                setSuccess('');
+                                resetForm();
+                                setShowCreateModal(
+                                    true
+                                );
+                            }}
+                        >
+                            ＋ مشروع جديد
+                        </button>
+
                     </div>
 
                 </section>
+
+
+                {/* =================================================
+                    Alerts
+                ================================================= */}
+
+                {error && (
+                    <div className="alert error-alert">
+
+                        <span>
+                            ⚠️
+                        </span>
+
+                        <div>
+                            {error}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setError('')
+                            }
+                        >
+                            ×
+                        </button>
+
+                    </div>
+                )}
+
+
+                {success && (
+                    <div className="alert success-alert">
+
+                        <span>
+                            ✓
+                        </span>
+
+                        <div>
+                            {success}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setSuccess('')
+                            }
+                        >
+                            ×
+                        </button>
+
+                    </div>
+                )}
 
 
                 {/* =================================================
@@ -626,17 +1087,17 @@ export default function DesignerProjects() {
                     <div className="stat-card">
 
                         <div className="stat-icon">
-                            ⚡
+                            ⚙️
                         </div>
 
                         <div>
                             <span>
-                                المشاريع النشطة
+                                قيد التنفيذ
                             </span>
 
                             <strong>
                                 {
-                                    statistics.active
+                                    statistics.inProgress
                                 }
                             </strong>
                         </div>
@@ -647,12 +1108,12 @@ export default function DesignerProjects() {
                     <div className="stat-card">
 
                         <div className="stat-icon">
-                            ✅
+                            ✓
                         </div>
 
                         <div>
                             <span>
-                                المشاريع المكتملة
+                                مكتملة
                             </span>
 
                             <strong>
@@ -673,12 +1134,12 @@ export default function DesignerProjects() {
 
                         <div>
                             <span>
-                                تصميم
+                                بها Assignments
                             </span>
 
                             <strong>
                                 {
-                                    statistics.main
+                                    statistics.assigned
                                 }
                             </strong>
                         </div>
@@ -686,41 +1147,20 @@ export default function DesignerProjects() {
                     </div>
 
 
-                    <div className="stat-card">
+                    <div className="stat-card warning-stat">
 
                         <div className="stat-icon">
-                            🖥️
+                            ⏰
                         </div>
 
                         <div>
                             <span>
-                                عروض
+                                متأخرة
                             </span>
 
                             <strong>
                                 {
-                                    statistics.presentation
-                                }
-                            </strong>
-                        </div>
-
-                    </div>
-
-
-                    <div className="stat-card">
-
-                        <div className="stat-icon">
-                            🔥
-                        </div>
-
-                        <div>
-                            <span>
-                                تصميم + عرض
-                            </span>
-
-                            <strong>
-                                {
-                                    statistics.both
+                                    statistics.overdue
                                 }
                             </strong>
                         </div>
@@ -734,7 +1174,7 @@ export default function DesignerProjects() {
                     Filters
                 ================================================= */}
 
-                <section className="filters-panel">
+                <section className="filters-card">
 
                     <div className="search-box">
 
@@ -743,8 +1183,6 @@ export default function DesignerProjects() {
                         </span>
 
                         <input
-                            type="text"
-                            placeholder="ابحث باسم المشروع أو الوصف..."
                             value={
                                 search
                             }
@@ -757,6 +1195,7 @@ export default function DesignerProjects() {
                                         .value
                                 )
                             }
+                            placeholder="ابحث باسم المشروع أو الـ Brief أو المصمم..."
                         />
 
                         {search && (
@@ -773,11 +1212,7 @@ export default function DesignerProjects() {
                     </div>
 
 
-                    <div className="filter-group">
-
-                        <label>
-                            الحالة
-                        </label>
+                    <div className="filter-row">
 
                         <select
                             value={
@@ -797,31 +1232,19 @@ export default function DesignerProjects() {
                                 كل الحالات
                             </option>
 
-                            <option value="active">
-                                النشطة
-                            </option>
-
                             <option value="in-progress">
                                 قيد التنفيذ
                             </option>
 
-                            <option value="pending">
-                                معلقة
+                            <option value="completed">
+                                مكتمل
                             </option>
 
-                            <option value="completed">
-                                مكتملة
+                            <option value="pending">
+                                معلق
                             </option>
                         </select>
 
-                    </div>
-
-
-                    <div className="filter-group">
-
-                        <label>
-                            نوع التعيين
-                        </label>
 
                         <select
                             value={
@@ -838,19 +1261,83 @@ export default function DesignerProjects() {
                             }
                         >
                             <option value="all">
-                                كل المشاريع
+                                كل التعيينات
                             </option>
 
-                            <option value="main">
-                                مصمم المشروع
+                            <option value="assigned">
+                                به Assignment
                             </option>
 
-                            <option value="presentation">
-                                مصمم العرض
+                            <option value="fully-assigned">
+                                Designer + Presentation
                             </option>
 
-                            <option value="both">
-                                المشروع والعرض
+                            <option value="unassigned">
+                                بدون Assignment
+                            </option>
+                        </select>
+
+
+                        <select
+                            value={
+                                deadlineFilter
+                            }
+                            onChange={(
+                                event
+                            ) =>
+                                setDeadlineFilter(
+                                    event
+                                        .target
+                                        .value
+                                )
+                            }
+                        >
+                            <option value="all">
+                                كل المواعيد
+                            </option>
+
+                            <option value="with-deadline">
+                                بها Deadline
+                            </option>
+
+                            <option value="overdue">
+                                متأخرة
+                            </option>
+
+                            <option value="no-deadline">
+                                بدون Deadline
+                            </option>
+                        </select>
+
+
+                        <select
+                            value={
+                                sortBy
+                            }
+                            onChange={(
+                                event
+                            ) =>
+                                setSortBy(
+                                    event
+                                        .target
+                                        .value
+                                )
+                            }
+                        >
+                            <option value="newest">
+                                الأحدث أولاً
+                            </option>
+
+                            <option value="oldest">
+                                الأقدم أولاً
+                            </option>
+
+                            <option value="deadline">
+                                أقرب Deadline
+                            </option>
+
+                            <option value="name">
+                                الاسم
                             </option>
                         </select>
 
@@ -860,27 +1347,32 @@ export default function DesignerProjects() {
 
 
                 {/* =================================================
-                    Result Header
+                    Results Header
                 ================================================= */}
 
                 <div className="results-header">
 
                     <div>
+
                         <strong>
-                            {filteredProjects.length}
+                            {
+                                filteredProjects.length
+                            }
                         </strong>
 
                         <span>
-                            مشروع
-                            {filteredProjects.length !== 1
-                                ? 'ات'
-                                : ''}
+                            مشروع ظاهر
                         </span>
+
                     </div>
 
-                    {(search ||
+
+                    {(
+                        search ||
                         statusFilter !== 'all' ||
-                        assignmentFilter !== 'all') && (
+                        assignmentFilter !== 'all' ||
+                        deadlineFilter !== 'all'
+                    ) && (
                         <button
                             type="button"
                             onClick={() => {
@@ -889,6 +1381,9 @@ export default function DesignerProjects() {
                                     'all'
                                 );
                                 setAssignmentFilter(
+                                    'all'
+                                );
+                                setDeadlineFilter(
                                     'all'
                                 );
                             }}
@@ -908,52 +1403,51 @@ export default function DesignerProjects() {
                     <section className="empty-state">
 
                         <div className="empty-icon">
-                            🎨
+                            📂
                         </div>
 
+                        <h2>
+                            لا توجد مشاريع
+                        </h2>
+
+                        <p>
+                            {projects.length === 0
+                                ? 'لم يتم إنشاء أي مشروع حتى الآن.'
+                                : 'لا يوجد مشروع يطابق الفلاتر الحالية.'}
+                        </p>
+
                         {projects.length === 0 ? (
-                            <>
-                                <h2>
-                                    لا توجد مشاريع متعيّنة
-                                </h2>
-
-                                <p>
-                                    لا يوجد حاليًا أي مشروع
-                                    تم تعيينك عليه.
-                                </p>
-
-                                <small>
-                                    عند قيام الـ Coordinator
-                                    بتعيينك على مشروع،
-                                    سيظهر المشروع هنا تلقائيًا.
-                                </small>
-                            </>
+                            <button
+                                type="button"
+                                className="create-button"
+                                onClick={() => {
+                                    resetForm();
+                                    setShowCreateModal(
+                                        true
+                                    );
+                                }}
+                            >
+                                ＋ إنشاء أول مشروع
+                            </button>
                         ) : (
-                            <>
-                                <h2>
-                                    لا توجد نتائج
-                                </h2>
-
-                                <p>
-                                    لم نجد مشاريع تطابق
-                                    معايير البحث الحالية.
-                                </p>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setSearch('');
-                                        setStatusFilter(
-                                            'all'
-                                        );
-                                        setAssignmentFilter(
-                                            'all'
-                                        );
-                                    }}
-                                >
-                                    عرض كل المشاريع
-                                </button>
-                            </>
+                            <button
+                                type="button"
+                                className="clear-filter-button"
+                                onClick={() => {
+                                    setSearch('');
+                                    setStatusFilter(
+                                        'all'
+                                    );
+                                    setAssignmentFilter(
+                                        'all'
+                                    );
+                                    setDeadlineFilter(
+                                        'all'
+                                    );
+                                }}
+                            >
+                                مسح الفلاتر
+                            </button>
                         )}
 
                     </section>
@@ -962,189 +1456,227 @@ export default function DesignerProjects() {
 
                         {filteredProjects.map(
                             (project) => {
-
-                                const projectId =
+                                const id =
                                     getId(
+                                        project
+                                    );
+
+                                const progress =
+                                    getCheckpointProgress(
+                                        project
+                                    );
+
+                                const overdue =
+                                    isOverdue(
                                         project
                                     );
 
                                 return (
                                     <article
                                         key={
-                                            projectId
+                                            id
                                         }
                                         className="project-card"
-                                        onClick={() =>
-                                            openProject(
-                                                projectId
-                                            )
-                                        }
                                     >
 
-                                        {/* Card Header */}
-                                        <div className="card-header">
+                                        <div className="project-card-top">
 
-                                            <div className="folder-icon">
+                                            <div className="project-icon">
                                                 📁
+                                            </div>
+
+                                            <div className="project-card-title">
+
+                                                <h2>
+                                                    {
+                                                        project.projectName ||
+                                                        'مشروع بدون اسم'
+                                                    }
+                                                </h2>
+
+                                                <span>
+                                                    {
+                                                        project.briefName ||
+                                                        'OSTUDIO Project'
+                                                    }
+                                                </span>
+
                                             </div>
 
                                             <span
                                                 className={`status-badge ${getStatusClass(
-                                                    project?.status
+                                                    project.status
                                                 )}`}
                                             >
-                                                {getStatusLabel(
-                                                    project?.status
-                                                )}
+                                                {
+                                                    getStatusLabel(
+                                                        project.status
+                                                    )
+                                                }
                                             </span>
 
                                         </div>
 
 
-                                        {/* Title */}
-                                        <h2>
-                                            {getProjectName(
-                                                project
-                                            )}
-                                        </h2>
-
-
-                                        {/* Assignment */}
-                                        <div className="assignment-badge">
-                                            {getAssignmentType(
-                                                project
-                                            ) === 'presentation'
-                                                ? '🖥️'
-                                                : '🎨'}
-
-                                            <span>
-                                                {getAssignmentLabel(
-                                                    project
-                                                )}
-                                            </span>
-                                        </div>
-
-
-                                        {/* Description */}
                                         <p className="project-description">
-                                            {getProjectDescription(
-                                                project
-                                            )}
+                                            {
+                                                project.brief ||
+                                                project.description ||
+                                                'لا يوجد وصف للمشروع.'
+                                            }
                                         </p>
 
 
-                                        {/* Dates */}
-                                        <div className="project-dates">
+                                        <div className="project-meta">
 
                                             <div>
-
                                                 <span>
                                                     البداية
                                                 </span>
 
                                                 <strong>
-                                                    {formatDate(
-                                                        project?.startDate
-                                                    )}
+                                                    {
+                                                        formatDate(
+                                                            project.startDate
+                                                        )
+                                                    }
                                                 </strong>
-
                                             </div>
 
 
                                             <div>
-
                                                 <span>
                                                     Deadline
                                                 </span>
 
-                                                <strong>
-                                                    {formatDate(
-                                                        project?.deadline
-                                                    )}
+                                                <strong
+                                                    className={
+                                                        overdue
+                                                            ? 'overdue-text'
+                                                            : ''
+                                                    }
+                                                >
+                                                    {
+                                                        formatDate(
+                                                            project.deadline
+                                                        )
+                                                    }
                                                 </strong>
+                                            </div>
+
+                                        </div>
+
+
+                                        <div className="progress-section">
+
+                                            <div className="progress-header">
+
+                                                <span>
+                                                    Checkpoints
+                                                </span>
+
+                                                <strong>
+                                                    {
+                                                        progress
+                                                    }%
+                                                </strong>
+
+                                            </div>
+
+                                            <div className="progress-track">
+
+                                                <div
+                                                    className="progress-fill"
+                                                    style={{
+                                                        width:
+                                                            `${progress}%`
+                                                    }}
+                                                />
 
                                             </div>
 
                                         </div>
 
 
-                                        {/* Checkpoints */}
-                                        {Array.isArray(
-                                            project?.checkpoints
-                                        ) && (
-                                            <div className="checkpoint-summary">
+                                        <div className="team-section">
 
-                                                <div className="checkpoint-label">
-                                                    <span>
-                                                        Checkpoints
-                                                    </span>
+                                            <div className="team-item">
+
+                                                <span className="team-icon">
+                                                    🎨
+                                                </span>
+
+                                                <div>
+                                                    <small>
+                                                        Project Designer
+                                                    </small>
 
                                                     <strong>
                                                         {
-                                                            project.checkpoints
-                                                                .filter(
-                                                                    (
-                                                                        checkpoint
-                                                                    ) =>
-                                                                        Boolean(
-                                                                            checkpoint?.isCompleted
-                                                                        )
-                                                                )
-                                                                .length
-                                                        }
-                                                        /
-                                                        {
-                                                            project.checkpoints
-                                                                .length
+                                                            getDesignerName(
+                                                                project
+                                                            )
                                                         }
                                                     </strong>
                                                 </div>
 
+                                            </div>
 
-                                                <div className="progress-track">
 
-                                                    <div
-                                                        className="progress-fill"
-                                                        style={{
-                                                            width:
+                                            <div className="team-item">
+
+                                                <span className="team-icon">
+                                                    🖥️
+                                                </span>
+
+                                                <div>
+                                                    <small>
+                                                        Presentation Designer
+                                                    </small>
+
+                                                    <strong>
+                                                        {
+                                                            getPresenterName(
                                                                 project
-                                                                    .checkpoints
-                                                                    .length >
-                                                                0
-                                                                    ? `${
-                                                                        (
-                                                                            project.checkpoints.filter(
-                                                                                (
-                                                                                    checkpoint
-                                                                                ) =>
-                                                                                    Boolean(
-                                                                                        checkpoint?.isCompleted
-                                                                                    )
-                                                                            ).length /
-                                                                            project.checkpoints.length
-                                                                        ) *
-                                                                        100
-                                                                    }%`
-                                                                    : '0%'
-                                                        }}
-                                                    />
-
+                                                            )
+                                                        }
+                                                    </strong>
                                                 </div>
 
                                             </div>
-                                        )}
+
+                                        </div>
 
 
-                                        {/* Footer */}
-                                        <div className="card-footer">
+                                        <div className="project-card-actions">
 
-                                            <span>
-                                                فتح تفاصيل المشروع
-                                            </span>
+                                            <button
+                                                type="button"
+                                                className="open-button"
+                                                onClick={() =>
+                                                    navigate(
+                                                        `/manager/projects/${id}`
+                                                    )
+                                                }
+                                            >
+                                                فتح التفاصيل
+                                                <span>
+                                                    ←
+                                                </span>
+                                            </button>
 
-                                            <span className="arrow">
-                                                ←
-                                            </span>
+
+                                            <button
+                                                type="button"
+                                                className="card-delete-button"
+                                                onClick={() =>
+                                                    openDeleteModal(
+                                                        project
+                                                    )
+                                                }
+                                            >
+                                                🗑
+                                            </button>
 
                                         </div>
 
@@ -1156,36 +1688,378 @@ export default function DesignerProjects() {
                     </section>
                 )}
 
-
-                {/* =================================================
-                    Permission Notice
-                ================================================= */}
-
-                <section className="permission-notice">
-
-                    <div className="notice-icon">
-                        🔐
-                    </div>
-
-                    <div>
-
-                        <h3>
-                            المشاريع الخاصة بك فقط
-                        </h3>
-
-                        <p>
-                            هذه القائمة تعتمد على المشاريع
-                            التي تم تعيينك عليها. لا يمكنك
-                            الوصول إلى مشاريع المصممين
-                            الآخرين من خلال هذه الصفحة.
-                        </p>
-
-                    </div>
-
-                </section>
-
             </main>
 
+
+            {/* =====================================================
+                Create Modal
+            ===================================================== */}
+
+            {showCreateModal && (
+                <div
+                    className="modal-overlay"
+                    onMouseDown={() => {
+                        if (!saving) {
+                            setShowCreateModal(
+                                false
+                            );
+                            resetForm();
+                        }
+                    }}
+                >
+
+                    <div
+                        className="modal"
+                        onMouseDown={(event) =>
+                            event.stopPropagation()
+                        }
+                    >
+
+                        <div className="modal-header">
+
+                            <div>
+                                <div className="modal-kicker">
+                                    NEW PROJECT
+                                </div>
+
+                                <h2>
+                                    إنشاء مشروع جديد
+                                </h2>
+
+                                <p>
+                                    بعد الإنشاء سيتم إشعار
+                                    الـ Coordinators.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                disabled={
+                                    saving
+                                }
+                                onClick={() => {
+                                    setShowCreateModal(
+                                        false
+                                    );
+                                    resetForm();
+                                }}
+                            >
+                                ×
+                            </button>
+
+                        </div>
+
+
+                        <form
+                            onSubmit={
+                                handleCreateProject
+                            }
+                        >
+
+                            <div className="form-grid">
+
+                                <div className="form-group full">
+
+                                    <label>
+                                        اسم المشروع *
+                                    </label>
+
+                                    <input
+                                        value={
+                                            form.projectName
+                                        }
+                                        onChange={(
+                                            event
+                                        ) =>
+                                            updateForm(
+                                                'projectName',
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                        }
+                                        placeholder="مثال: Branding Project"
+                                        required
+                                    />
+
+                                </div>
+
+
+                                <div className="form-group full">
+
+                                    <label>
+                                        Brief
+                                    </label>
+
+                                    <textarea
+                                        rows={4}
+                                        value={
+                                            form.brief
+                                        }
+                                        onChange={(
+                                            event
+                                        ) =>
+                                            updateForm(
+                                                'brief',
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                        }
+                                        placeholder="اكتب الـ Brief الخاص بالمشروع..."
+                                    />
+
+                                </div>
+
+
+                                <div className="form-group full">
+
+                                    <label>
+                                        Description
+                                    </label>
+
+                                    <textarea
+                                        rows={4}
+                                        value={
+                                            form.description
+                                        }
+                                        onChange={(
+                                            event
+                                        ) =>
+                                            updateForm(
+                                                'description',
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                        }
+                                        placeholder="وصف المشروع..."
+                                    />
+
+                                </div>
+
+
+                                <div className="form-group">
+
+                                    <label>
+                                        Start Date
+                                    </label>
+
+                                    <input
+                                        type="date"
+                                        value={
+                                            form.startDate
+                                        }
+                                        onChange={(
+                                            event
+                                        ) =>
+                                            updateForm(
+                                                'startDate',
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                        }
+                                    />
+
+                                </div>
+
+
+                                <div className="form-group">
+
+                                    <label>
+                                        Deadline
+                                    </label>
+
+                                    <input
+                                        type="date"
+                                        value={
+                                            form.deadline
+                                        }
+                                        onChange={(
+                                            event
+                                        ) =>
+                                            updateForm(
+                                                'deadline',
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                        }
+                                    />
+
+                                </div>
+
+
+                                <div className="form-group full">
+
+                                    <label>
+                                        Manager Notes
+                                    </label>
+
+                                    <textarea
+                                        rows={4}
+                                        value={
+                                            form.managerNotes
+                                        }
+                                        onChange={(
+                                            event
+                                        ) =>
+                                            updateForm(
+                                                'managerNotes',
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                        }
+                                        placeholder="ملاحظات خاصة بالمشروع..."
+                                    />
+
+                                </div>
+
+                            </div>
+
+
+                            <div className="modal-actions">
+
+                                <button
+                                    type="button"
+                                    className="cancel-button"
+                                    disabled={
+                                        saving
+                                    }
+                                    onClick={() => {
+                                        setShowCreateModal(
+                                            false
+                                        );
+                                        resetForm();
+                                    }}
+                                >
+                                    إلغاء
+                                </button>
+
+
+                                <button
+                                    type="submit"
+                                    className="save-button"
+                                    disabled={
+                                        saving
+                                    }
+                                >
+                                    {saving
+                                        ? 'جاري الإنشاء...'
+                                        : 'إنشاء المشروع'}
+                                </button>
+
+                            </div>
+
+                        </form>
+
+                    </div>
+
+                </div>
+            )}
+
+
+            {/* =====================================================
+                Delete Modal
+            ===================================================== */}
+
+            {showDeleteModal &&
+                projectToDelete && (
+                    <div
+                        className="modal-overlay"
+                        onMouseDown={() => {
+                            if (!deleting) {
+                                setShowDeleteModal(
+                                    false
+                                );
+                                setProjectToDelete(
+                                    null
+                                );
+                            }
+                        }}
+                    >
+
+                        <div
+                            className="modal delete-modal"
+                            onMouseDown={(event) =>
+                                event.stopPropagation()
+                            }
+                        >
+
+                            <div className="delete-icon">
+                                🗑
+                            </div>
+
+                            <h2>
+                                حذف المشروع؟
+                            </h2>
+
+                            <p>
+                                سيتم حذف مشروع
+                                <strong>
+                                    {' '}
+                                    {
+                                        projectToDelete.projectName ||
+                                        'بدون اسم'
+                                    }
+                                    {' '}
+                                </strong>
+                                نهائيًا.
+                                <br />
+                                هذا الإجراء لا يمكن
+                                التراجع عنه.
+                            </p>
+
+
+                            <div className="modal-actions">
+
+                                <button
+                                    type="button"
+                                    className="cancel-button"
+                                    disabled={
+                                        deleting
+                                    }
+                                    onClick={() => {
+                                        setShowDeleteModal(
+                                            false
+                                        );
+                                        setProjectToDelete(
+                                            null
+                                        );
+                                    }}
+                                >
+                                    إلغاء
+                                </button>
+
+
+                                <button
+                                    type="button"
+                                    className="danger-button"
+                                    disabled={
+                                        deleting
+                                    }
+                                    onClick={
+                                        handleDeleteProject
+                                    }
+                                >
+                                    {deleting
+                                        ? 'جاري الحذف...'
+                                        : 'نعم، حذف المشروع'}
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+                )}
+
+
+            {/* =====================================================
+                Styles
+            ===================================================== */}
 
             <style>{`
 
@@ -1193,7 +2067,7 @@ export default function DesignerProjects() {
                     box-sizing: border-box;
                 }
 
-                .designer-projects-page {
+                .manager-projects-page {
                     min-height: 100vh;
                     background: #f5f7fb;
                     color: #172033;
@@ -1206,7 +2080,7 @@ export default function DesignerProjects() {
                         calc(100% - 48px)
                     );
                     margin: 0 auto;
-                    padding: 110px 0 60px;
+                    padding: 105px 0 60px;
                 }
 
 
@@ -1217,115 +2091,158 @@ export default function DesignerProjects() {
                 .page-header {
                     display: flex;
                     justify-content: space-between;
-                    align-items: flex-start;
-                    gap: 25px;
-                    margin-bottom: 28px;
+                    align-items: flex-end;
+                    gap: 20px;
+                    margin-bottom: 20px;
                 }
 
                 .page-kicker {
                     color: #94a3b8;
-                    font-size: 11px;
+                    font-size: 9px;
+                    letter-spacing: 1.5px;
                     font-weight: 900;
-                    letter-spacing: 2px;
-                    margin-bottom: 7px;
+                    margin-bottom: 5px;
                 }
 
                 .page-header h1 {
                     margin: 0;
                     color: #111827;
-                    font-size: 34px;
+                    font-size: 30px;
                     font-weight: 900;
                 }
 
                 .page-header p {
-                    margin: 9px 0 0;
+                    margin: 7px 0 0;
                     color: #64748b;
-                    font-size: 14px;
-                    line-height: 1.8;
+                    font-size: 11px;
                 }
 
                 .header-actions {
                     display: flex;
                     align-items: center;
-                    gap: 10px;
+                    gap: 8px;
                     direction: ltr;
                 }
 
-                .refresh-button {
-                    border: 1px solid #e2e8f0;
-                    background: #ffffff;
-                    color: #334155;
-                    border-radius: 10px;
-                    padding: 10px 15px;
+                .refresh-button,
+                .create-button {
+                    border-radius: 9px;
+                    padding: 10px 14px;
                     cursor: pointer;
-                    font-size: 12px;
-                    font-weight: 800;
+                    font-family: inherit;
+                    font-size: 9px;
+                    font-weight: 900;
                 }
 
-                .refresh-button:hover {
-                    background: #f8fafc;
+                .refresh-button {
+                    border: 1px solid #dbe3ed;
+                    background: #ffffff;
+                    color: #475569;
+                }
+
+                .create-button {
+                    border: 0;
+                    background: #111827;
+                    color: #ffffff;
+                }
+
+                .refresh-button:disabled {
+                    opacity: 0.55;
+                    cursor: not-allowed;
                 }
 
 
                 /* =========================================
-                   Statistics
+                   Alerts
+                ========================================= */
+
+                .alert {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 12px 14px;
+                    border-radius: 11px;
+                    margin-bottom: 15px;
+                    font-size: 11px;
+                }
+
+                .alert > div {
+                    flex: 1;
+                }
+
+                .alert button {
+                    border: 0;
+                    background: transparent;
+                    cursor: pointer;
+                    font-size: 18px;
+                }
+
+                .error-alert {
+                    background: #fff1f2;
+                    border: 1px solid #fecdd3;
+                    color: #9f1239;
+                }
+
+                .success-alert {
+                    background: #f0fdf4;
+                    border: 1px solid #bbf7d0;
+                    color: #166534;
+                }
+
+
+                /* =========================================
+                   Stats
                 ========================================= */
 
                 .stats-grid {
                     display: grid;
                     grid-template-columns:
                         repeat(
-                            6,
+                            5,
                             minmax(0, 1fr)
                         );
-                    gap: 13px;
-                    margin-bottom: 22px;
+                    gap: 11px;
+                    margin-bottom: 17px;
                 }
 
                 .stat-card {
                     display: flex;
                     align-items: center;
-                    gap: 12px;
-                    min-width: 0;
-                    padding: 17px;
+                    gap: 10px;
                     background: #ffffff;
                     border: 1px solid #e8edf4;
-                    border-radius: 15px;
-                    box-shadow:
-                        0 6px 22px
-                        rgba(
-                            15,
-                            23,
-                            42,
-                            0.035
-                        );
+                    border-radius: 13px;
+                    padding: 13px;
                 }
 
                 .stat-icon {
-                    width: 43px;
-                    height: 43px;
+                    width: 38px;
+                    height: 38px;
                     flex-shrink: 0;
-                    border-radius: 12px;
+                    border-radius: 10px;
                     background: #f1f5f9;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-size: 19px;
+                    font-size: 17px;
                 }
 
                 .stat-card span {
                     display: block;
-                    color: #64748b;
-                    font-size: 10px;
-                    margin-bottom: 5px;
-                    white-space: nowrap;
+                    color: #94a3b8;
+                    font-size: 8px;
+                    margin-bottom: 3px;
                 }
 
                 .stat-card strong {
                     display: block;
-                    color: #111827;
-                    font-size: 22px;
+                    color: #334155;
+                    font-size: 18px;
                     font-weight: 900;
+                }
+
+                .warning-stat .stat-icon {
+                    background: #fff7ed;
                 }
 
 
@@ -1333,41 +2250,38 @@ export default function DesignerProjects() {
                    Filters
                 ========================================= */
 
-                .filters-panel {
-                    display: flex;
-                    align-items: flex-end;
-                    gap: 12px;
+                .filters-card {
                     background: #ffffff;
                     border: 1px solid #e8edf4;
-                    border-radius: 16px;
-                    padding: 15px;
-                    margin-bottom: 15px;
+                    border-radius: 14px;
+                    padding: 13px;
+                    margin-bottom: 17px;
                 }
 
                 .search-box {
-                    flex: 1;
-                    height: 43px;
                     display: flex;
                     align-items: center;
                     gap: 8px;
-                    border: 1px solid #e2e8f0;
+                    border: 1px solid #dfe6ef;
                     border-radius: 9px;
-                    padding: 0 12px;
-                    min-width: 200px;
+                    padding: 0 10px;
+                    margin-bottom: 10px;
                 }
 
                 .search-box span {
-                    font-size: 14px;
+                    font-size: 13px;
                 }
 
                 .search-box input {
-                    width: 100%;
+                    flex: 1;
+                    min-width: 0;
                     border: 0;
                     outline: 0;
-                    background: transparent;
-                    font-family: inherit;
-                    font-size: 12px;
+                    padding: 10px 0;
                     color: #334155;
+                    font-family: inherit;
+                    font-size: 10px;
+                    background: transparent;
                 }
 
                 .search-box button {
@@ -1375,34 +2289,29 @@ export default function DesignerProjects() {
                     background: transparent;
                     color: #94a3b8;
                     cursor: pointer;
-                    font-size: 18px;
-                    line-height: 1;
+                    font-size: 16px;
                 }
 
-                .filter-group {
-                    width: 180px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 6px;
+                .filter-row {
+                    display: grid;
+                    grid-template-columns:
+                        repeat(
+                            4,
+                            minmax(0, 1fr)
+                        );
+                    gap: 8px;
                 }
 
-                .filter-group label {
-                    color: #94a3b8;
-                    font-size: 9px;
-                    font-weight: 800;
-                }
-
-                .filter-group select {
-                    height: 43px;
+                .filter-row select {
                     width: 100%;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 9px;
+                    border: 1px solid #dfe6ef;
+                    border-radius: 8px;
                     background: #ffffff;
-                    color: #334155;
-                    padding: 0 10px;
+                    color: #475569;
+                    padding: 9px;
                     outline: 0;
                     font-family: inherit;
-                    font-size: 11px;
+                    font-size: 9px;
                 }
 
 
@@ -1414,25 +2323,23 @@ export default function DesignerProjects() {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    min-height: 35px;
                     margin-bottom: 12px;
                 }
 
-                .results-header div {
+                .results-header > div {
                     display: flex;
                     align-items: baseline;
                     gap: 5px;
                 }
 
                 .results-header strong {
-                    color: #111827;
-                    font-size: 17px;
-                    font-weight: 900;
+                    color: #334155;
+                    font-size: 15px;
                 }
 
                 .results-header span {
                     color: #94a3b8;
-                    font-size: 11px;
+                    font-size: 9px;
                 }
 
                 .results-header button {
@@ -1440,17 +2347,14 @@ export default function DesignerProjects() {
                     background: transparent;
                     color: #64748b;
                     cursor: pointer;
-                    font-size: 11px;
+                    font-family: inherit;
+                    font-size: 9px;
                     font-weight: 800;
-                }
-
-                .results-header button:hover {
-                    color: #111827;
                 }
 
 
                 /* =========================================
-                   Projects Grid
+                   Cards
                 ========================================= */
 
                 .projects-grid {
@@ -1460,59 +2364,72 @@ export default function DesignerProjects() {
                             3,
                             minmax(0, 1fr)
                         );
-                    gap: 16px;
+                    gap: 14px;
                 }
 
                 .project-card {
                     background: #ffffff;
                     border: 1px solid #e8edf4;
-                    border-radius: 17px;
-                    padding: 18px;
-                    cursor: pointer;
+                    border-radius: 16px;
+                    padding: 15px;
                     transition:
-                        transform 0.2s ease,
-                        box-shadow 0.2s ease,
-                        border-color 0.2s ease;
-                    box-shadow:
-                        0 6px 22px
-                        rgba(
-                            15,
-                            23,
-                            42,
-                            0.035
-                        );
+                        transform 0.18s ease,
+                        box-shadow 0.18s ease;
                 }
 
                 .project-card:hover {
-                    transform: translateY(-3px);
-                    border-color: #cbd5e1;
+                    transform: translateY(-2px);
                     box-shadow:
-                        0 16px 35px
+                        0 12px 30px
                         rgba(
                             15,
                             23,
                             42,
-                            0.08
+                            0.07
                         );
                 }
 
-                .card-header {
+                .project-card-top {
                     display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    gap: 10px;
-                    margin-bottom: 16px;
+                    align-items: flex-start;
+                    gap: 9px;
                 }
 
-                .folder-icon {
-                    width: 43px;
-                    height: 43px;
-                    border-radius: 12px;
-                    background: #f8fafc;
+                .project-icon {
+                    width: 42px;
+                    height: 42px;
+                    flex-shrink: 0;
+                    border-radius: 11px;
+                    background: #f1f5f9;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-size: 20px;
+                    font-size: 18px;
+                }
+
+                .project-card-title {
+                    min-width: 0;
+                    flex: 1;
+                }
+
+                .project-card-title h2 {
+                    margin: 0;
+                    color: #1e293b;
+                    font-size: 12px;
+                    font-weight: 900;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+                .project-card-title span {
+                    display: block;
+                    color: #94a3b8;
+                    font-size: 8px;
+                    margin-top: 4px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
                 }
 
                 .status-badge {
@@ -1520,8 +2437,8 @@ export default function DesignerProjects() {
                     align-items: center;
                     justify-content: center;
                     border-radius: 999px;
-                    padding: 5px 9px;
-                    font-size: 9px;
+                    padding: 5px 8px;
+                    font-size: 7px;
                     font-weight: 900;
                     white-space: nowrap;
                 }
@@ -1546,130 +2463,185 @@ export default function DesignerProjects() {
                     color: #475569;
                 }
 
-                .project-card h2 {
-                    margin: 0 0 9px;
-                    color: #111827;
-                    font-size: 17px;
-                    font-weight: 900;
-                }
-
-                .assignment-badge {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 5px;
-                    padding: 5px 8px;
-                    border-radius: 8px;
-                    background: #f1f5f9;
-                    color: #475569;
-                    font-size: 9px;
-                    font-weight: 900;
-                    margin-bottom: 11px;
-                }
-
                 .project-description {
-                    min-height: 43px;
-                    margin: 0 0 15px;
+                    min-height: 40px;
+                    margin: 13px 0;
                     color: #64748b;
-                    font-size: 11px;
+                    font-size: 9px;
                     line-height: 1.8;
                     display: -webkit-box;
-                    -webkit-box-orient: vertical;
                     -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
                     overflow: hidden;
                 }
 
-                .project-dates {
+                .project-meta {
                     display: grid;
                     grid-template-columns:
                         repeat(
                             2,
                             minmax(0, 1fr)
                         );
-                    gap: 9px;
-                    border-top: 1px solid #eef2f7;
-                    padding-top: 13px;
+                    gap: 7px;
                 }
 
-                .project-dates div {
-                    min-width: 0;
+                .project-meta > div {
+                    background: #f8fafc;
+                    border-radius: 9px;
+                    padding: 8px;
                 }
 
-                .project-dates span {
+                .project-meta span {
                     display: block;
                     color: #94a3b8;
-                    font-size: 9px;
-                    margin-bottom: 4px;
+                    font-size: 7px;
+                    margin-bottom: 3px;
                 }
 
-                .project-dates strong {
-                    display: block;
+                .project-meta strong {
                     color: #475569;
-                    font-size: 10px;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
+                    font-size: 8px;
+                }
+
+                .overdue-text {
+                    color: #be123c !important;
                 }
 
 
                 /* =========================================
-                   Checkpoints
+                   Progress
                 ========================================= */
 
-                .checkpoint-summary {
-                    margin-top: 14px;
+                .progress-section {
+                    margin-top: 12px;
                 }
 
-                .checkpoint-label {
+                .progress-header {
                     display: flex;
                     justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 6px;
+                    margin-bottom: 5px;
                 }
 
-                .checkpoint-label span {
+                .progress-header span {
                     color: #94a3b8;
-                    font-size: 9px;
+                    font-size: 7px;
                 }
 
-                .checkpoint-label strong {
+                .progress-header strong {
                     color: #475569;
-                    font-size: 9px;
+                    font-size: 7px;
                 }
 
                 .progress-track {
                     height: 5px;
-                    border-radius: 999px;
                     background: #e2e8f0;
+                    border-radius: 999px;
                     overflow: hidden;
                 }
 
                 .progress-fill {
                     height: 100%;
-                    border-radius: inherit;
                     background: #334155;
-                    transition: width 0.25s ease;
+                    border-radius: inherit;
                 }
 
 
                 /* =========================================
-                   Footer
+                   Team
                 ========================================= */
 
-                .card-footer {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    margin-top: 16px;
-                    padding-top: 13px;
-                    border-top: 1px solid #eef2f7;
-                    color: #64748b;
-                    font-size: 10px;
-                    font-weight: 800;
+                .team-section {
+                    display: grid;
+                    grid-template-columns:
+                        repeat(
+                            2,
+                            minmax(0, 1fr)
+                        );
+                    gap: 6px;
+                    margin-top: 12px;
                 }
 
-                .arrow {
+                .team-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    min-width: 0;
+                    background: #f8fafc;
+                    border-radius: 8px;
+                    padding: 7px;
+                }
+
+                .team-icon {
+                    width: 27px;
+                    height: 27px;
+                    flex-shrink: 0;
+                    border-radius: 7px;
+                    background: #ffffff;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                }
+
+                .team-item div {
+                    min-width: 0;
+                }
+
+                .team-item small {
+                    display: block;
+                    color: #94a3b8;
+                    font-size: 6px;
+                    margin-bottom: 2px;
+                }
+
+                .team-item strong {
+                    display: block;
                     color: #475569;
-                    font-size: 17px;
+                    font-size: 7px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+
+                /* =========================================
+                   Card Actions
+                ========================================= */
+
+                .project-card-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    margin-top: 13px;
+                    padding-top: 11px;
+                    border-top: 1px solid #eef2f7;
+                }
+
+                .open-button {
+                    flex: 1;
+                    border: 0;
+                    border-radius: 8px;
+                    background: #111827;
+                    color: #ffffff;
+                    padding: 9px 10px;
+                    cursor: pointer;
+                    font-family: inherit;
+                    font-size: 8px;
+                    font-weight: 900;
+                }
+
+                .open-button span {
+                    margin-right: 5px;
+                }
+
+                .card-delete-button {
+                    width: 34px;
+                    height: 34px;
+                    border: 1px solid #fecdd3;
+                    border-radius: 8px;
+                    background: #fff1f2;
+                    color: #be123c;
+                    cursor: pointer;
                 }
 
 
@@ -1678,98 +2650,254 @@ export default function DesignerProjects() {
                 ========================================= */
 
                 .empty-state {
-                    text-align: center;
                     background: #ffffff;
-                    border: 1px dashed #dbe3ed;
-                    border-radius: 18px;
-                    padding: 65px 25px;
+                    border: 1px solid #e8edf4;
+                    border-radius: 17px;
+                    padding: 55px 20px;
+                    text-align: center;
                 }
 
                 .empty-icon {
-                    width: 66px;
-                    height: 66px;
-                    margin: 0 auto 15px;
-                    border-radius: 20px;
-                    background: #f1f5f9;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 29px;
+                    font-size: 42px;
+                    margin-bottom: 12px;
                 }
 
                 .empty-state h2 {
                     margin: 0;
-                    color: #111827;
-                    font-size: 20px;
-                    font-weight: 900;
+                    color: #334155;
+                    font-size: 18px;
                 }
 
                 .empty-state p {
-                    margin: 8px 0;
-                    color: #64748b;
-                    font-size: 13px;
-                }
-
-                .empty-state small {
-                    display: block;
-                    max-width: 500px;
-                    margin: 0 auto 18px;
+                    margin: 7px 0 18px;
                     color: #94a3b8;
-                    font-size: 11px;
-                    line-height: 1.8;
+                    font-size: 10px;
                 }
 
-                .empty-state button {
-                    border: 0;
-                    background: #111827;
-                    color: #ffffff;
-                    border-radius: 9px;
-                    padding: 10px 16px;
+                .clear-filter-button {
+                    border: 1px solid #dbe3ed;
+                    border-radius: 8px;
+                    background: #ffffff;
+                    color: #475569;
+                    padding: 9px 13px;
                     cursor: pointer;
-                    font-size: 11px;
+                    font-family: inherit;
+                    font-size: 9px;
                     font-weight: 800;
                 }
 
 
                 /* =========================================
-                   Permission Notice
+                   Modal
                 ========================================= */
 
-                .permission-notice {
-                    display: flex;
-                    align-items: flex-start;
-                    gap: 13px;
-                    background: #ffffff;
-                    border: 1px solid #e8edf4;
-                    border-radius: 15px;
-                    padding: 17px;
-                    margin-top: 22px;
-                }
-
-                .notice-icon {
-                    width: 40px;
-                    height: 40px;
-                    flex-shrink: 0;
-                    border-radius: 11px;
-                    background: #f1f5f9;
+                .modal-overlay {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 9999;
+                    background: rgba(
+                        15,
+                        23,
+                        42,
+                        0.5
+                    );
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-size: 18px;
+                    padding: 20px;
                 }
 
-                .permission-notice h3 {
-                    margin: 0 0 4px;
-                    color: #334155;
-                    font-size: 13px;
+                .modal {
+                    width: min(
+                        680px,
+                        100%
+                    );
+                    max-height: calc(
+                        100vh - 40px
+                    );
+                    overflow-y: auto;
+                    background: #ffffff;
+                    border-radius: 18px;
+                    padding: 22px;
+                    box-shadow:
+                        0 25px 70px
+                        rgba(
+                            15,
+                            23,
+                            42,
+                            0.25
+                        );
+                }
+
+                .delete-modal {
+                    width: min(
+                        440px,
+                        100%
+                    );
+                    text-align: center;
+                }
+
+                .modal-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    gap: 15px;
+                    margin-bottom: 20px;
+                }
+
+                .modal-kicker {
+                    color: #94a3b8;
+                    font-size: 8px;
+                    font-weight: 900;
+                    letter-spacing: 1.5px;
+                    margin-bottom: 5px;
+                }
+
+                .modal-header h2 {
+                    margin: 0;
+                    color: #111827;
+                    font-size: 19px;
                     font-weight: 900;
                 }
 
-                .permission-notice p {
-                    margin: 0;
+                .modal-header p {
+                    margin: 5px 0 0;
                     color: #64748b;
-                    font-size: 11px;
+                    font-size: 10px;
+                }
+
+                .modal-header > button {
+                    width: 31px;
+                    height: 31px;
+                    border: 0;
+                    border-radius: 8px;
+                    background: #f1f5f9;
+                    color: #64748b;
+                    cursor: pointer;
+                    font-size: 19px;
+                }
+
+                .form-grid {
+                    display: grid;
+                    grid-template-columns:
+                        repeat(
+                            2,
+                            minmax(0, 1fr)
+                        );
+                    gap: 13px;
+                }
+
+                .form-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 7px;
+                }
+
+                .form-group.full {
+                    grid-column: 1 / -1;
+                }
+
+                .form-group label {
+                    color: #475569;
+                    font-size: 9px;
+                    font-weight: 900;
+                }
+
+                .form-group input,
+                .form-group textarea {
+                    width: 100%;
+                    border: 1px solid #dfe6ef;
+                    border-radius: 9px;
+                    padding: 10px 11px;
+                    outline: 0;
+                    background: #ffffff;
+                    color: #334155;
+                    font-family: inherit;
+                    font-size: 10px;
+                }
+
+                .form-group textarea {
+                    resize: vertical;
+                    line-height: 1.7;
+                }
+
+                .form-group input:focus,
+                .form-group textarea:focus {
+                    border-color: #94a3b8;
+                    box-shadow:
+                        0 0 0 3px
+                        rgba(
+                            148,
+                            163,
+                            184,
+                            0.13
+                        );
+                }
+
+                .modal-actions {
+                    display: flex;
+                    justify-content: flex-start;
+                    gap: 8px;
+                    margin-top: 20px;
+                }
+
+                .cancel-button,
+                .save-button,
+                .danger-button {
+                    border: 0;
+                    border-radius: 9px;
+                    padding: 10px 16px;
+                    cursor: pointer;
+                    font-family: inherit;
+                    font-size: 9px;
+                    font-weight: 900;
+                }
+
+                .cancel-button {
+                    background: #f1f5f9;
+                    color: #475569;
+                }
+
+                .save-button {
+                    background: #111827;
+                    color: #ffffff;
+                }
+
+                .danger-button {
+                    background: #be123c;
+                    color: #ffffff;
+                }
+
+                .delete-icon {
+                    width: 58px;
+                    height: 58px;
+                    margin: 0 auto 13px;
+                    border-radius: 17px;
+                    background: #fff1f2;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 25px;
+                }
+
+                .delete-modal h2 {
+                    margin: 0;
+                    color: #111827;
+                    font-size: 19px;
+                }
+
+                .delete-modal p {
+                    margin: 9px 0 0;
+                    color: #64748b;
+                    font-size: 10px;
                     line-height: 1.8;
+                }
+
+                .cancel-button:disabled,
+                .save-button:disabled,
+                .danger-button:disabled {
+                    opacity: 0.55;
+                    cursor: not-allowed;
                 }
 
 
@@ -1797,48 +2925,33 @@ export default function DesignerProjects() {
                     }
                 }
 
-
                 @media (
-                    max-width: 800px
+                    max-width: 850px
                 ) {
                     .projects-container {
                         width:
                             calc(
                                 100% - 24px
                             );
-
                         padding-top: 95px;
                     }
 
                     .page-header {
+                        align-items: flex-start;
                         flex-direction: column;
                     }
 
                     .header-actions {
                         width: 100%;
-                        justify-content: flex-start;
+                        flex-wrap: wrap;
                     }
 
-                    .filters-panel {
-                        flex-direction: column;
-                        align-items: stretch;
-                    }
-
-                    .filter-group {
-                        width: 100%;
-                    }
-
-                    .search-box {
-                        width: 100%;
-                    }
-                }
-
-
-                @media (
-                    max-width: 600px
-                ) {
-                    .page-header h1 {
-                        font-size: 28px;
+                    .filter-row {
+                        grid-template-columns:
+                            repeat(
+                                2,
+                                minmax(0, 1fr)
+                            );
                     }
 
                     .stats-grid {
@@ -1848,22 +2961,41 @@ export default function DesignerProjects() {
                                 minmax(0, 1fr)
                             );
                     }
+                }
 
+                @media (
+                    max-width: 600px
+                ) {
                     .projects-grid {
                         grid-template-columns: 1fr;
                     }
 
-                    .project-dates {
-                        grid-template-columns: 1fr;
-                    }
-                }
-
-
-                @media (
-                    max-width: 400px
-                ) {
                     .stats-grid {
                         grid-template-columns: 1fr;
+                    }
+
+                    .filter-row {
+                        grid-template-columns: 1fr;
+                    }
+
+                    .team-section {
+                        grid-template-columns: 1fr;
+                    }
+
+                    .form-grid {
+                        grid-template-columns: 1fr;
+                    }
+
+                    .form-group.full {
+                        grid-column: auto;
+                    }
+
+                    .modal {
+                        padding: 17px;
+                    }
+
+                    .page-header h1 {
+                        font-size: 25px;
                     }
                 }
 

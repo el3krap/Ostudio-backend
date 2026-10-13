@@ -25,13 +25,9 @@ import {
     getMyProject,
     getProjectCheckpoints,
     updateCheckpoint,
-    completeCheckpoint,
-    reopenCheckpoint,
     updateRender,
-    updateRenderStatus,
     getPresentation,
     updatePresentation,
-    getMyProjectStatus
 } from '../../services/designerService';
 
 
@@ -263,8 +259,6 @@ export default function DesignerProjectDetails() {
 
     const [checkpointForm, setCheckpointForm] =
         useState({
-            title: '',
-            note: '',
             fileUrl: '',
             fileName: ''
         });
@@ -505,75 +499,6 @@ export default function DesignerProjectDetails() {
 
 
     /* =====================================================
-       Project Status
-    ===================================================== */
-
-    const handleProjectStatus =
-        async (status) => {
-            try {
-                setSaving(true);
-                setError('');
-                setSuccess('');
-
-                /*
-                 * We use the existing project update
-                 * endpoint rather than allowing the
-                 * Designer to change ownership.
-                 */
-                await getMyProjectStatus(
-                    projectId
-                );
-
-                /*
-                 * Status changes are intentionally
-                 * handled through updateMyProject
-                 * only if the backend allows the
-                 * authenticated Designer to do so.
-                 *
-                 * We import the operation lazily
-                 * to keep the rest of the page clean.
-                 */
-                const designerModule =
-                    await import(
-                        '../../services/designerService'
-                    );
-
-                await designerModule.updateMyProject(
-                    projectId,
-                    {
-                        status
-                    }
-                );
-
-                setProject(
-                    (previous) =>
-                        previous
-                            ? {
-                                ...previous,
-                                status
-                            }
-                            : previous
-                );
-
-                setSuccess(
-                    'تم تحديث حالة المشروع بنجاح.'
-                );
-            } catch (err) {
-                console.error(
-                    err
-                );
-
-                setError(
-                    err?.message ||
-                    'تعذر تحديث حالة المشروع.'
-                );
-            } finally {
-                setSaving(false);
-            }
-        };
-
-
-    /* =====================================================
        Checkpoint Modal
     ===================================================== */
 
@@ -584,12 +509,6 @@ export default function DesignerProjectDetails() {
             );
 
             setCheckpointForm({
-                title:
-                    checkpoint?.title ||
-                    '',
-                note:
-                    checkpoint?.note ||
-                    '',
                 fileUrl:
                     checkpoint?.fileUrl ||
                     checkpoint?.imageLink ||
@@ -615,8 +534,6 @@ export default function DesignerProjectDetails() {
             );
 
             setCheckpointForm({
-                title: '',
-                note: '',
                 fileUrl: '',
                 fileName: ''
             });
@@ -706,97 +623,6 @@ export default function DesignerProjectDetails() {
 
 
     /* =====================================================
-       Checkpoint Completion
-    ===================================================== */
-
-    const toggleCheckpoint =
-        async (checkpoint) => {
-            const checkpointId =
-                getCheckpointId(
-                    checkpoint
-                );
-
-            if (!checkpointId) {
-                return;
-            }
-
-            try {
-                setCheckpointSaving(
-                    String(checkpointId)
-                );
-
-                setError('');
-                setSuccess('');
-
-                const completed =
-                    isCheckpointCompleted(
-                        checkpoint
-                    );
-
-                let response;
-
-                if (completed) {
-                    response =
-                        await reopenCheckpoint(
-                            projectId,
-                            checkpointId
-                        );
-                } else {
-                    response =
-                        await completeCheckpoint(
-                            projectId,
-                            checkpointId
-                        );
-                }
-
-                const updatedCheckpoint =
-                    response?.checkpoint ||
-                    response;
-
-                setCheckpoints(
-                    (previous) =>
-                        previous.map(
-                            (item) =>
-                                String(
-                                    getCheckpointId(
-                                        item
-                                    )
-                                ) ===
-                                String(
-                                    checkpointId
-                                )
-                                    ? {
-                                        ...item,
-                                        ...updatedCheckpoint,
-                                        isCompleted:
-                                            !completed
-                                    }
-                                    : item
-                        )
-                );
-
-                setSuccess(
-                    completed
-                        ? 'تم إعادة فتح الـ Checkpoint.'
-                        : 'تم إكمال الـ Checkpoint بنجاح.'
-                );
-            } catch (err) {
-                console.error(
-                    'Checkpoint status error:',
-                    err
-                );
-
-                setError(
-                    err?.message ||
-                    'تعذر تحديث حالة الـ Checkpoint.'
-                );
-            } finally {
-                setCheckpointSaving('');
-            }
-        };
-
-
-    /* =====================================================
        Render
     ===================================================== */
 
@@ -850,59 +676,6 @@ export default function DesignerProjectDetails() {
                 setError(
                     err?.message ||
                     'تعذر حفظ بيانات الـ Render.'
-                );
-            } finally {
-                setSaving(false);
-            }
-        };
-
-
-    const changeRenderStatus =
-        async (status) => {
-            if (!canEditProject) {
-                return;
-            }
-
-            try {
-                setSaving(true);
-                setError('');
-                setSuccess('');
-
-                await updateRenderStatus(
-                    projectId,
-                    status
-                );
-
-                setRenderForm(
-                    (previous) => ({
-                        ...previous,
-                        renderStatus:
-                            status
-                    })
-                );
-
-                setProject(
-                    (previous) =>
-                        previous
-                            ? {
-                                ...previous,
-                                renderStatus:
-                                    status
-                            }
-                            : previous
-                );
-
-                setSuccess(
-                    'تم تحديث حالة الـ Render.'
-                );
-            } catch (err) {
-                console.error(
-                    err
-                );
-
-                setError(
-                    err?.message ||
-                    'تعذر تحديث حالة الـ Render.'
                 );
             } finally {
                 setSaving(false);
@@ -1443,51 +1216,9 @@ export default function DesignerProjectDetails() {
                                 </div>
 
 
-                                {canEditProject && (
-                                    <div className="status-actions">
-
-                                        <button
-                                            type="button"
-                                            disabled={
-                                                saving
-                                            }
-                                            className={
-                                                project?.status ===
-                                                'in-progress'
-                                                    ? 'selected'
-                                                    : ''
-                                            }
-                                            onClick={() =>
-                                                handleProjectStatus(
-                                                    'in-progress'
-                                                )
-                                            }
-                                        >
-                                            قيد التنفيذ
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            disabled={
-                                                saving
-                                            }
-                                            className={
-                                                project?.status ===
-                                                'completed'
-                                                    ? 'selected'
-                                                    : ''
-                                            }
-                                            onClick={() =>
-                                                handleProjectStatus(
-                                                    'completed'
-                                                )
-                                            }
-                                        >
-                                            مكتمل
-                                        </button>
-
-                                    </div>
-                                )}
+                                <p className="permission-note">
+                                    تغيير حالة المشروع وإنهاؤه من صلاحيات الـ Coordinator.
+                                </p>
 
 
                                 <div className="date-grid">
@@ -1693,24 +1424,17 @@ export default function DesignerProjectDetails() {
                                                     }
                                                 >
 
-                                                    <button
-                                                        type="button"
+                                                    <div
                                                         className="checkpoint-check"
-                                                        disabled={
-                                                            busy
+                                                        aria-label={
+                                                            completed
+                                                                ? 'تم اعتماد المرحلة'
+                                                                : 'بانتظار مراجعة المنسق'
                                                         }
-                                                        onClick={() =>
-                                                            toggleCheckpoint(
-                                                                checkpoint
-                                                            )
-                                                        }
+                                                        title="حالة المرحلة يحددها الـ Coordinator"
                                                     >
-                                                        {busy
-                                                            ? '...'
-                                                            : completed
-                                                                ? '✓'
-                                                                : ''}
-                                                    </button>
+                                                        {completed ? '✓' : '•'}
+                                                    </div>
 
 
                                                     <div className="checkpoint-content">
@@ -1917,21 +1641,8 @@ export default function DesignerProjectDetails() {
                                                 value={
                                                     renderForm.renderStatus
                                                 }
-                                                onChange={(
-                                                    event
-                                                ) =>
-                                                    setRenderForm(
-                                                        (
-                                                            previous
-                                                        ) => ({
-                                                            ...previous,
-                                                            renderStatus:
-                                                                event
-                                                                    .target
-                                                                    .value
-                                                        })
-                                                    )
-                                                }
+                                                disabled
+                                                aria-label="حالة الـ Render يحددها الـ Coordinator"
                                             >
                                                 <option value="">
                                                     اختر الحالة
@@ -1972,55 +1683,9 @@ export default function DesignerProjectDetails() {
                                 </form>
 
 
-                                <div className="quick-status">
-
-                                    <span>
-                                        تحديث سريع:
-                                    </span>
-
-                                    <button
-                                        type="button"
-                                        disabled={
-                                            saving
-                                        }
-                                        onClick={() =>
-                                            changeRenderStatus(
-                                                'pending'
-                                            )
-                                        }
-                                    >
-                                        معلقة
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        disabled={
-                                            saving
-                                        }
-                                        onClick={() =>
-                                            changeRenderStatus(
-                                                'in-progress'
-                                            )
-                                        }
-                                    >
-                                        قيد التنفيذ
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        disabled={
-                                            saving
-                                        }
-                                        onClick={() =>
-                                            changeRenderStatus(
-                                                'completed'
-                                            )
-                                        }
-                                    >
-                                        مكتملة
-                                    </button>
-
-                                </div>
+                                <p className="permission-note">
+                                    حالة الـ Render ومراجعته من صلاحيات الـ Coordinator.
+                                </p>
 
                             </section>
 
@@ -2223,7 +1888,7 @@ export default function DesignerProjectDetails() {
 
                             <div>
                                 <h2>
-                                    تعديل Checkpoint
+                                    رفع أو تحديث ملف Checkpoint
                                 </h2>
 
                                 <p>
@@ -2250,64 +1915,6 @@ export default function DesignerProjectDetails() {
                                 saveCheckpoint
                             }
                         >
-
-                            <div className="form-group">
-                                <label>
-                                    العنوان
-                                </label>
-
-                                <input
-                                    type="text"
-                                    value={
-                                        checkpointForm.title
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        setCheckpointForm(
-                                            (
-                                                previous
-                                            ) => ({
-                                                ...previous,
-                                                title:
-                                                    event
-                                                        .target
-                                                        .value
-                                            })
-                                        )
-                                    }
-                                />
-                            </div>
-
-
-                            <div className="form-group">
-                                <label>
-                                    الملاحظات
-                                </label>
-
-                                <textarea
-                                    rows={5}
-                                    value={
-                                        checkpointForm.note
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        setCheckpointForm(
-                                            (
-                                                previous
-                                            ) => ({
-                                                ...previous,
-                                                note:
-                                                    event
-                                                        .target
-                                                        .value
-                                            })
-                                        )
-                                    }
-                                />
-                            </div>
-
 
                             <div className="form-group">
                                 <label>

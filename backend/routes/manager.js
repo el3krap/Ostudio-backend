@@ -1,6 +1,9 @@
 // backend/routes/manager.js
 
 const express = require('express');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 const mongoose = require('mongoose');
 
 const router = express.Router();
@@ -547,6 +550,10 @@ router.get(
                     .populate(
                         'assignedPresenter',
                         'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role'
                     );
 
 
@@ -583,6 +590,60 @@ router.get(
 
 
 // ======================================================
+// COORDINATORS AVAILABLE FOR PROJECT ASSIGNMENT
+// ======================================================
+
+router.get('/coordinators', async (req, res) => {
+    try {
+        const coordinators = await User.find({
+            role: 'coordinator',
+            status: { $in: ['active', 'approved'] },
+        })
+            .select('_id name email role status')
+            .sort({ name: 1 });
+
+        return res.status(200).json({
+            success: true,
+            coordinators,
+        });
+    } catch (error) {
+        console.error('Manager get coordinators error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to load coordinators.',
+        });
+    }
+});
+
+
+// ======================================================
+// UPLOAD PROJECT BRIEF
+// Stores arbitrary file types under backend/uploads/briefs.
+// Access remains behind authenticateUser + requireManager.
+// ======================================================
+const briefUploadDir = path.join(__dirname, '..', 'uploads', 'briefs');
+fs.mkdirSync(briefUploadDir, { recursive: true });
+const briefStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, briefUploadDir),
+    filename: (_req, file, cb) => {
+        const safeOriginal = path.basename(file.originalname || 'brief-file').replace(/[^a-zA-Z0-9._-]/g, '_');
+        cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${safeOriginal}`);
+    },
+});
+const briefUpload = multer({ storage: briefStorage, limits: { fileSize: 500 * 1024 * 1024 } });
+router.post('/projects/upload-brief', briefUpload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ success: false, message: 'لم يتم اختيار ملف.' });
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    return res.status(201).json({
+        success: true,
+        url: `${baseUrl}/uploads/briefs/${encodeURIComponent(req.file.filename)}`,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+    });
+});
+
+// ======================================================
 // CREATE PROJECT
 // ======================================================
 //
@@ -614,12 +675,31 @@ router.post(
             }
 
 
+            if (!isValidObjectId(req.body.coordinatorId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'يجب اختيار Coordinator صالح للمشروع.',
+                });
+            }
+
+            const coordinator = await User.findOne({
+                _id: req.body.coordinatorId,
+                role: 'coordinator',
+                status: { $in: ['active', 'approved'] },
+            }).select('_id name email role status');
+
+            if (!coordinator) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'حساب الـ Coordinator المختار غير نشط أو غير معتمد.',
+                });
+            }
+
             const project =
                 new Project({
                     ...projectData,
-
-                    createdBy:
-                        req.user.mongoId,
+                    assignedCoordinator: coordinator._id,
+                    createdBy: req.user.mongoId,
                 });
 
 
@@ -709,6 +789,16 @@ router.post(
                     `${req.user.name || 'Manager'} أنشأ مشروعًا جديدًا: "${project.projectName}".`,
             });
 
+            await notifyUser({
+                recipient: coordinator._id,
+                sender: req.user.mongoId,
+                type: 'project-assigned',
+                title: 'تم إسناد متابعة مشروع إليك',
+                message: `أنت الـ Coordinator المسؤول عن المشروع "${project.projectName}".`,
+                project: project._id,
+                link: `/coordinator/projects/${project._id}`,
+            });
+
 
             // --------------------------------------------------
             // Notify Main Designer
@@ -788,6 +878,10 @@ router.post(
                     )
                     .populate(
                         'assignedPresenter',
+                        'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
                         'name email role'
                     );
 

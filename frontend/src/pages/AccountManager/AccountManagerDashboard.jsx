@@ -7,6 +7,7 @@ import Loading from '../../components/shared/Loading';
 
 import {
     getAccountManagerDashboardData,
+    getActiveCoordinators,
     createProject
 } from '../../services/accountManagerService';
 
@@ -21,6 +22,8 @@ const AccountManagerDashboard = () => {
     const [user, setUser] = useState(null);
 
     const [projects, setProjects] = useState([]);
+    const [coordinators, setCoordinators] = useState([]);
+    const [coordinatorsLoading, setCoordinatorsLoading] = useState(false);
 
     const [loading, setLoading] = useState(true);
     const [creatingProject, setCreatingProject] = useState(false);
@@ -35,7 +38,8 @@ const AccountManagerDashboard = () => {
         description: '',
         startDate: '',
         deadline: '',
-        managerNotes: ''
+        managerNotes: '',
+        assignedCoordinator: ''
     });
 
     /* =========================================================
@@ -75,6 +79,21 @@ const AccountManagerDashboard = () => {
                     ? result.projects
                     : []
             );
+
+            try {
+                setCoordinatorsLoading(true);
+                const availableCoordinators = await getActiveCoordinators();
+                setCoordinators(
+                    Array.isArray(availableCoordinators)
+                        ? availableCoordinators
+                        : []
+                );
+            } catch (coordinatorError) {
+                console.error('Failed to load Coordinators:', coordinatorError);
+                setCoordinators([]);
+            } finally {
+                setCoordinatorsLoading(false);
+            }
         } catch (err) {
             console.error(
                 '❌ Account Manager Dashboard Error:',
@@ -148,7 +167,8 @@ const AccountManagerDashboard = () => {
             description: '',
             startDate: '',
             deadline: '',
-            managerNotes: ''
+            managerNotes: '',
+            assignedCoordinator: ''
         });
     };
 
@@ -164,12 +184,18 @@ const AccountManagerDashboard = () => {
             return;
         }
 
+        if (!formData.assignedCoordinator) {
+            setError('من فضلك اختار الـ Coordinator المسؤول عن المشروع.');
+            return;
+        }
+
         try {
             setCreatingProject(true);
             setError('');
 
             await createProject({
                 projectName: formData.projectName.trim(),
+                assignedCoordinator: formData.assignedCoordinator,
                 brief: formData.brief.trim(),
                 description: formData.description.trim(),
                 startDate: formData.startDate || null,
@@ -532,6 +558,11 @@ const AccountManagerDashboard = () => {
                                                 'لا يوجد وصف للمشروع.'}
                                         </p>
 
+                                        <p className="project-coordinator">
+                                            <strong>Coordinator المسؤول: </strong>
+                                            {project?.assignedCoordinator?.name || 'غير محدد'}
+                                        </p>
+
                                         <div className="project-meta">
 
                                             <div>
@@ -753,6 +784,39 @@ const AccountManagerDashboard = () => {
 
                             </div>
 
+                            <div className="form-group">
+                                <label htmlFor="assignedCoordinator">
+                                    الـ Coordinator المسؤول *
+                                </label>
+                                <select
+                                    id="assignedCoordinator"
+                                    name="assignedCoordinator"
+                                    value={formData.assignedCoordinator}
+                                    onChange={handleInputChange}
+                                    required
+                                    disabled={coordinatorsLoading || coordinators.length === 0 || creatingProject}
+                                >
+                                    <option value="">
+                                        {coordinatorsLoading
+                                            ? 'جاري تحميل الـ Coordinators...'
+                                            : coordinators.length === 0
+                                                ? 'لا توجد حسابات Coordinator نشطة أو معتمدة'
+                                                : 'اختر الـ Coordinator المسؤول'}
+                                    </option>
+                                    {coordinators.map((coordinator) => (
+                                        <option
+                                            key={coordinator._id}
+                                            value={coordinator._id}
+                                        >
+                                            {coordinator.name || coordinator.email || coordinator._id}
+                                        </option>
+                                    ))}
+                                </select>
+                                <small>
+                                    سيتم إسناد المشروع للمسؤول المختار فقط وإخطاره بإنشاء المشروع.
+                                </small>
+                            </div>
+
                             <div className="modal-actions">
 
                                 <button
@@ -775,7 +839,7 @@ const AccountManagerDashboard = () => {
                                     type="submit"
                                     className="submit-button"
                                     disabled={
-                                        creatingProject
+                                        creatingProject || coordinatorsLoading || coordinators.length === 0
                                     }
                                 >
                                     {creatingProject

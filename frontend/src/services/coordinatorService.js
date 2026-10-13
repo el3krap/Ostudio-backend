@@ -157,6 +157,31 @@ async function getCoordinatorDashboard() {
 }
 
 /* =========================================================
+   Create Project / Available Coordinators
+========================================================= */
+
+async function getAvailableCoordinators() {
+    const response = await coordinatorRequest('/coordinator/available-coordinators');
+    return Array.isArray(response?.coordinators) ? response.coordinators : Array.isArray(response?.data) ? response.data : [];
+}
+
+async function createProject(projectData = {}) {
+    if (!projectData.projectName?.trim()) throw new Error('اسم المشروع مطلوب.');
+    if (!projectData.assignedCoordinator) throw new Error('اختار Coordinator المسؤول عن المشروع.');
+    const response = await coordinatorRequest('/coordinator/projects', {
+        method: 'POST',
+        body: JSON.stringify({
+            projectName: projectData.projectName.trim(),
+            assignedCoordinator: projectData.assignedCoordinator,
+            brief: projectData.brief || '', briefName: projectData.briefName || '',
+            description: projectData.description || '', managerNotes: projectData.managerNotes || '',
+            startDate: projectData.startDate || null, deadline: projectData.deadline || null
+        })
+    });
+    return response?.project || response?.data || response;
+}
+
+/* =========================================================
    Projects
 ========================================================= */
 
@@ -1214,6 +1239,8 @@ export {
     getCoordinatorSummary,
 
     getProjects,
+    getAvailableCoordinators,
+    createProject,
     getAllProjects,
     getProject,
     getProjectDetails,

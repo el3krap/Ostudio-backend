@@ -1190,6 +1190,10 @@ router.get(
                         'assignedPresenter',
                         'name email role'
                     )
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role status'
+                    )
                     .sort({
                         createdAt: -1,
                     })
@@ -1255,6 +1259,10 @@ router.get(
                     .populate(
                         'assignedPresenter',
                         'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role status'
                     );
 
 
@@ -1331,6 +1339,37 @@ router.put(
                     req.body
                 );
 
+            // Admin may assign or unassign a project Coordinator.
+            // Only active/approved Coordinator accounts are accepted.
+            if (req.body.assignedCoordinator !== undefined) {
+                const coordinatorId = req.body.assignedCoordinator;
+
+                if (coordinatorId === null || coordinatorId === '') {
+                    updateData.assignedCoordinator = null;
+                } else {
+                    if (!isValidObjectId(coordinatorId)) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Invalid Coordinator ID.',
+                        });
+                    }
+
+                    const coordinator = await User.findOne({
+                        _id: coordinatorId,
+                        role: 'coordinator',
+                        status: { $in: ['active', 'approved'] },
+                    }).select('_id');
+
+                    if (!coordinator) {
+                        return res.status(400).json({
+                            success: false,
+                            message: 'Selected Coordinator is not active or approved.',
+                        });
+                    }
+
+                    updateData.assignedCoordinator = coordinator._id;
+                }
+            }
 
             Object.assign(
                 project,
@@ -1354,6 +1393,10 @@ router.put(
                     .populate(
                         'assignedPresenter',
                         'name email role'
+                    )
+                    .populate(
+                        'assignedCoordinator',
+                        'name email role status'
                     );
 
 
