@@ -55,9 +55,10 @@ if (!MONGO_URI) {
 
 const allowedOrigins = [
     FRONTEND_URL,
+    'https://ostudio-backend-pm3p.vercel.app',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-];
+].map((origin) => origin.trim().replace(/\/+$/, ''));
 
 
 app.use(
@@ -70,8 +71,10 @@ app.use(
             }
 
 
+            const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+
             if (
-                allowedOrigins.includes(origin)
+                allowedOrigins.includes(normalizedOrigin)
             ) {
                 return callback(null, true);
             }
