@@ -260,6 +260,37 @@ export async function getCoordinators() {
 
 }
 
+/** Upload a project brief and return its stored URL and original name. */
+export async function uploadProjectBrief(file) {
+    if (!file || typeof file !== 'object' || typeof file.name !== 'string') {
+        throw new Error('اختار ملف Brief صالحًا قبل الرفع.');
+    }
+
+    const token = await getAuthToken();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/manager/projects/upload-brief`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+    });
+
+    let data = null;
+    try { data = await response.json(); } catch { data = null; }
+
+    if (!response.ok || !data?.url) {
+        throw new Error(data?.message || data?.error || `فشل رفع ملف Brief (HTTP ${response.status}).`);
+    }
+
+    return {
+        url: data.url,
+        fileName: data.fileName || file.name,
+        mimeType: data.mimeType || file.type || '',
+        size: data.size ?? file.size
+    };
+}
+
 /*\\\*
 
  \\\* Get one project.
@@ -1791,6 +1822,7 @@ const managerService = {
     getProjects,
 
     getCoordinators,
+    uploadProjectBrief,
 
     getProject,
 

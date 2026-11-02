@@ -22,6 +22,8 @@ import {
 
 import {
     getProjects,
+    getCoordinators,
+    uploadProjectBrief,
     createProject,
     deleteProject
 } from '../../services/managerService';
@@ -243,14 +245,15 @@ export default function ManagerProjects() {
     const [deleting, setDeleting] =
         useState(false);
 
+    const [coordinators, setCoordinators] =
+        useState([]);
+
     const [form, setForm] =
         useState({
             projectName: '',
-            brief: '',
-            description: '',
-            startDate: '',
-            deadline: '',
-            managerNotes: ''
+            briefFile: null,
+            managerNotes: '',
+            coordinatorId: ''
         });
 
 
@@ -321,14 +324,13 @@ export default function ManagerProjects() {
                         return;
                     }
 
-                    const result =
-                        await getProjects();
+                    const [result, coordinatorResult] = await Promise.all([
+                        getProjects(),
+                        getCoordinators()
+                    ]);
 
-                    setProjects(
-                        Array.isArray(result)
-                            ? result
-                            : []
-                    );
+                    setProjects(Array.isArray(result) ? result : []);
+                    setCoordinators(Array.isArray(coordinatorResult) ? coordinatorResult : []);
                 } catch (err) {
                     console.error(
                         'Load manager projects error:',
@@ -394,11 +396,9 @@ export default function ManagerProjects() {
         () => {
             setForm({
                 projectName: '',
-                brief: '',
-                description: '',
-                startDate: '',
-                deadline: '',
-                managerNotes: ''
+                briefFile: null,
+                managerNotes: '',
+                coordinatorId: ''
             });
         };
 
@@ -421,34 +421,27 @@ export default function ManagerProjects() {
                 return;
             }
 
+            if (!form.coordinatorId) {
+                setError('اختار الـ Coordinator المسؤول عن المشروع.');
+                return;
+            }
+
             try {
                 setSaving(true);
                 setError('');
                 setSuccess('');
 
+                const briefUpload = form.briefFile
+                    ? await uploadProjectBrief(form.briefFile)
+                    : { url: '', fileName: '' };
+
                 await createProject({
-                    projectName:
-                        form.projectName.trim(),
-
-                    brief:
-                        form.brief.trim(),
-
-                    description:
-                        form.description.trim(),
-
-                    startDate:
-                        form.startDate ||
-                        null,
-
-                    deadline:
-                        form.deadline ||
-                        null,
-
-                    managerNotes:
-                        form.managerNotes.trim(),
-
-                    status:
-                        'in-progress'
+                    projectName: form.projectName.trim(),
+                    brief: briefUpload.url,
+                    briefName: briefUpload.fileName,
+                    managerNotes: form.managerNotes.trim(),
+                    coordinatorId: form.coordinatorId,
+                    status: 'in-progress'
                 });
 
                 resetForm();
@@ -1757,170 +1750,62 @@ export default function ManagerProjects() {
                                 handleCreateProject
                             }
                         >
-
                             <div className="form-grid">
-
                                 <div className="form-group full">
-
-                                    <label>
-                                        اسم المشروع *
-                                    </label>
-
+                                    <label>اسم المشروع *</label>
                                     <input
-                                        value={
-                                            form.projectName
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'projectName',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
+                                        type="text"
+                                        value={form.projectName}
+                                        onChange={(event) => updateForm('projectName', event.target.value)}
                                         placeholder="مثال: Branding Project"
                                         required
                                     />
-
                                 </div>
-
 
                                 <div className="form-group full">
-
-                                    <label>
-                                        Brief
-                                    </label>
-
-                                    <textarea
-                                        rows={4}
-                                        value={
-                                            form.brief
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'brief',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
-                                        placeholder="اكتب الـ Brief الخاص بالمشروع..."
-                                    />
-
-                                </div>
-
-
-                                <div className="form-group full">
-
-                                    <label>
-                                        Description
-                                    </label>
-
-                                    <textarea
-                                        rows={4}
-                                        value={
-                                            form.description
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'description',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
-                                        placeholder="وصف المشروع..."
-                                    />
-
-                                </div>
-
-
-                                <div className="form-group">
-
-                                    <label>
-                                        Start Date
-                                    </label>
-
+                                    <label>ملف الـ Brief (PDF أو صور أو فيديو أو أي نوع ملف)</label>
                                     <input
-                                        type="date"
-                                        value={
-                                            form.startDate
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'startDate',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
+                                        type="file"
+                                        onChange={(event) => updateForm('briefFile', event.target.files?.[0] || null)}
+                                        disabled={saving}
                                     />
-
+                                    {form.briefFile && <small>الملف المختار: {form.briefFile.name}</small>}
                                 </div>
-
-
-                                <div className="form-group">
-
-                                    <label>
-                                        Deadline
-                                    </label>
-
-                                    <input
-                                        type="date"
-                                        value={
-                                            form.deadline
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'deadline',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
-                                    />
-
-                                </div>
-
 
                                 <div className="form-group full">
-
-                                    <label>
-                                        Manager Notes
-                                    </label>
-
+                                    <label>ملاحظات الـ Manager</label>
                                     <textarea
                                         rows={4}
-                                        value={
-                                            form.managerNotes
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            updateForm(
-                                                'managerNotes',
-                                                event
-                                                    .target
-                                                    .value
-                                            )
-                                        }
+                                        value={form.managerNotes}
+                                        onChange={(event) => updateForm('managerNotes', event.target.value)}
                                         placeholder="ملاحظات خاصة بالمشروع..."
                                     />
-
                                 </div>
 
+                                <div className="form-group full">
+                                    <label>الـ Coordinator المسؤول *</label>
+                                    <select
+                                        value={form.coordinatorId}
+                                        onChange={(event) => updateForm('coordinatorId', event.target.value)}
+                                        required
+                                        disabled={saving || coordinators.length === 0}
+                                    >
+                                        <option value="">
+                                            {coordinators.length === 0 ? 'لا توجد حسابات Coordinator نشطة' : 'اختر الـ Coordinator المسؤول'}
+                                        </option>
+                                        {coordinators.map((coordinator) => {
+                                            const id = coordinator._id || coordinator.id;
+                                            return (
+                                                <option key={id} value={id}>
+                                                    {coordinator.name || coordinator.email || id}
+                                                    {coordinator.email ? ` — ${coordinator.email}` : ''}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                    <small>سيتم إرسال إشعار إلى الـ Coordinator المختار.</small>
+                                </div>
                             </div>
-
 
                             <div className="modal-actions">
 
@@ -1945,7 +1830,7 @@ export default function ManagerProjects() {
                                     type="submit"
                                     className="save-button"
                                     disabled={
-                                        saving
+                                        saving || coordinators.length === 0
                                     }
                                 >
                                     {saving
