@@ -22,9 +22,10 @@ const API_BASE_URL =
 
 async function getAuthToken() {
 
-    const currentUser =
+    // Wait until Firebase finishes restoring the initial auth session.
+    await auth.authStateReady();
 
-        auth.currentUser;
+    const currentUser = auth.currentUser;
 
     if (!currentUser) {
 
@@ -36,7 +37,8 @@ async function getAuthToken() {
 
     }
 
-    return currentUser.getIdToken();
+    // Return a fresh Firebase ID token for the backend request.
+    return await currentUser.getIdToken();
 
 }
 
