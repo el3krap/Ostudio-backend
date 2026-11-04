@@ -1,3 +1,4 @@
+
 // backend/server.js
 
 require('dotenv').config();
@@ -7,20 +8,17 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
 
-
 // ======================================================
 // App
 // ======================================================
 
 const app = express();
 
-
 // ======================================================
 // Environment
 // ======================================================
 
-const PORT =
-    process.env.PORT || 8080;
+const PORT = process.env.PORT || 8080;
 
 const MONGO_URI =
     process.env.MONGO_URI ||
@@ -31,64 +29,56 @@ const FRONTEND_URL =
     process.env.FRONTEND_URL ||
     'http://localhost:5173';
 
+// Optional: multiple frontend origins separated by commas
+const FRONTEND_URLS =
+    process.env.FRONTEND_URLS || '';
 
 // ======================================================
-// Basic configuration validation
+// Basic Configuration Validation
 // ======================================================
 
 if (!MONGO_URI) {
-    console.error(
-        '❌ Missing MongoDB connection string.'
-    );
-
-    console.error(
-        'Add MONGO_URI to backend/.env'
-    );
-
+    console.error('❌ Missing MongoDB connection string.');
+    console.error('Add MONGO_URI to backend/.env');
     process.exit(1);
 }
-
 
 // ======================================================
 // CORS
 // ======================================================
 
+function normalizeOrigin(origin) {
+    return origin.trim().replace(/\/+$/, '');
+}
+
 const allowedOrigins = [
     FRONTEND_URL,
+    ...FRONTEND_URLS.split(','),
     'https://ostudio-backend-pm3p.vercel.app',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-].map((origin) => origin.trim().replace(/\/+$/, ''));
-
+]
+    .filter(Boolean)
+    .map(normalizeOrigin);
 
 app.use(
     cors({
         origin: function (origin, callback) {
 
-            // Allow requests such as Postman/server-to-server
+            // Allow requests without an Origin header
             if (!origin) {
                 return callback(null, true);
             }
 
+            const normalizedOrigin = normalizeOrigin(origin);
 
-            const normalizedOrigin = origin.trim().replace(/\/+$/, '');
-
-            if (
-                allowedOrigins.includes(normalizedOrigin)
-            ) {
+            if (allowedOrigins.includes(normalizedOrigin)) {
                 return callback(null, true);
             }
 
+            console.warn(`⚠️ CORS blocked origin: ${origin}`);
 
-            console.warn(
-                `⚠️ CORS blocked origin: ${origin}`
-            );
-
-            return callback(
-                new Error(
-                    'Not allowed by CORS'
-                )
-            );
+            return callback(new Error('Not allowed by CORS'));
         },
 
         credentials: true,
@@ -109,9 +99,8 @@ app.use(
     })
 );
 
-
 // ======================================================
-// Body parsers
+// Body Parsers
 // ======================================================
 
 app.use(
@@ -127,293 +116,203 @@ app.use(
     })
 );
 
+// ======================================================
+// Static File Storage
+// ======================================================
+
+const uploadsDirectory = path.join(__dirname, 'uploads');
+
+app.use('/uploads', express.static(uploadsDirectory));
 
 // ======================================================
-// Request logging
+// Request Logging
 // ======================================================
 
-app.use(
-    (req, res, next) => {
+app.use((req, res, next) => {
 
-        const startedAt =
-            Date.now();
+    const startedAt = Date.now();
 
+    res.on('finish', () => {
 
-        res.on(
-            'finish',
-            () => {
+        const duration = Date.now() - startedAt;
 
-                const duration =
-                    Date.now() -
-                    startedAt;
-
-
-                console.log(
-                    `${req.method} ${req.originalUrl} → ${res.statusCode} (${duration}ms)`
-                );
-            }
+        console.log(
+            `${req.method} ${req.originalUrl} → ${res.statusCode} (${duration}ms)`
         );
+    });
 
-
-        next();
-    }
-);
-
+    next();
+});
 
 // ======================================================
-// Health check
+// Health Check
 // ======================================================
 
-app.get(
-    '/',
-    (req, res) => {
+app.get('/', (req, res) => {
 
-        return res.status(200).json({
-            success: true,
+    return res.status(200).json({
 
-            message:
-                'OSTUDIO backend is running.',
+        success: true,
 
-            service:
-                'Ostudio API',
+        message: 'OSTUDIO backend is running.',
 
-            status:
-                'online',
+        service: 'Ostudio API',
 
-            timestamp:
-                new Date().toISOString(),
-        });
-    }
-);
+        status: 'online',
 
+        timestamp: new Date().toISOString(),
+    });
+});
 
-app.get(
-    '/api/health',
-    (req, res) => {
+app.get('/api/health', (req, res) => {
 
-        return res.status(200).json({
-            success: true,
+    return res.status(200).json({
 
-            message:
-                'OSTUDIO API is healthy.',
+        success: true,
 
-            database:
-                mongoose.connection.readyState === 1
-                    ? 'connected'
-                    : 'disconnected',
+        message: 'OSTUDIO API is healthy.',
 
-            timestamp:
-                new Date().toISOString(),
-        });
-    }
-);
+        database:
+            mongoose.connection.readyState === 1
+                ? 'connected'
+                : 'disconnected',
 
+        timestamp: new Date().toISOString(),
+    });
+});
 
 // ======================================================
 // API Routes
 // ======================================================
 
 // Authentication
-const authRoutes =
-    require('./routes/auth');
-
+const authRoutes = require('./routes/auth');
 
 // Admin
-const adminRoutes =
-    require('./routes/admin');
-
+const adminRoutes = require('./routes/admin');
 
 // Manager
-const managerRoutes =
-    require('./routes/manager');
-
+const managerRoutes = require('./routes/manager');
 
 // Account Manager
-const accountManagerRoutes =
-    require('./routes/accountManager');
-
+const accountManagerRoutes = require('./routes/accountManager');
 
 // Coordinator
-const coordinatorRoutes =
-    require('./routes/coordinator');
-
+const coordinatorRoutes = require('./routes/coordinator');
 
 // Designer
-const designerRoutes =
-    require('./routes/designer');
-
+const designerRoutes = require('./routes/designer');
 
 // Notifications
-const notificationRoutes =
-    require('./routes/notifications');
-
+const notificationRoutes = require('./routes/notifications');
 
 // ======================================================
-// Mount routes
+// Mount Routes
 // ======================================================
 
-app.use(
-    '/api/auth',
-    authRoutes
-);
+app.use('/api/auth', authRoutes);
 
+app.use('/api/admin', adminRoutes);
 
-app.use(
-    '/api/admin',
-    adminRoutes
-);
+app.use('/api/manager', managerRoutes);
 
+app.use('/api/account-manager', accountManagerRoutes);
 
-app.use(
-    '/api/manager',
-    managerRoutes
-);
+app.use('/api/coordinator', coordinatorRoutes);
 
+app.use('/api/designer', designerRoutes);
 
-app.use(
-    '/api/account-manager',
-    accountManagerRoutes
-);
-
-
-app.use(
-    '/api/coordinator',
-    coordinatorRoutes
-);
-
-
-app.use(
-    '/api/designer',
-    designerRoutes
-);
-
-
-app.use(
-    '/api/notifications',
-    notificationRoutes
-);
-
+app.use('/api/notifications', notificationRoutes);
 
 // ======================================================
 // 404 Handler
 // ======================================================
 
-app.use(
-    (req, res) => {
+app.use((req, res) => {
 
-        return res.status(404).json({
-            success: false,
+    return res.status(404).json({
 
-            message:
-                'API endpoint not found.',
+        success: false,
 
-            path:
-                req.originalUrl,
+        message: 'API endpoint not found.',
 
-            method:
-                req.method,
-        });
-    }
-);
+        path: req.originalUrl,
 
+        method: req.method,
+    });
+});
 
 // ======================================================
 // Global Error Handler
 // ======================================================
 
-app.use(
-    (err, req, res, next) => {
+app.use((err, req, res, next) => {
 
-        console.error(
-            '❌ Server error:',
-            err
-        );
+    console.error('❌ Server error:', err);
 
+    // CORS error
+    if (err.message === 'Not allowed by CORS') {
 
-        // CORS error
-        if (
-            err.message ===
-            'Not allowed by CORS'
-        ) {
-            return res.status(403).json({
-                success: false,
+        return res.status(403).json({
 
-                message:
-                    'CORS policy blocked this request.',
-            });
-        }
-
-
-        // JSON body parsing error
-        if (
-            err instanceof SyntaxError &&
-            err.status === 400 &&
-            'body' in err
-        ) {
-            return res.status(400).json({
-                success: false,
-
-                message:
-                    'Invalid JSON request body.',
-            });
-        }
-
-
-        const statusCode =
-            err.statusCode ||
-            err.status ||
-            500;
-
-
-        return res.status(
-            statusCode
-        ).json({
             success: false,
 
-            message:
-                statusCode === 500
-                    ? 'Internal server error.'
-                    : err.message ||
-                      'Request failed.',
+            message: 'CORS policy blocked this request.',
         });
     }
-);
 
+    // JSON body parsing error
+    if (
+        err instanceof SyntaxError &&
+        err.status === 400 &&
+        'body' in err
+    ) {
+
+        return res.status(400).json({
+
+            success: false,
+
+            message: 'Invalid JSON request body.',
+        });
+    }
+
+    const statusCode =
+        err.statusCode ||
+        err.status ||
+        500;
+
+    return res.status(statusCode).json({
+
+        success: false,
+
+        message:
+            statusCode === 500
+                ? 'Internal server error.'
+                : err.message || 'Request failed.',
+    });
+});
 
 // ======================================================
-// MongoDB connection
+// MongoDB Connection
 // ======================================================
 
 async function connectDatabase() {
 
     try {
 
-        console.log(
-            '🔄 Connecting to MongoDB...'
-        );
+        console.log('🔄 Connecting to MongoDB...');
 
+        await mongoose.connect(MONGO_URI, {
 
-        await mongoose.connect(
-            MONGO_URI,
-            {
-                serverSelectionTimeoutMS:
-                    10000,
+            serverSelectionTimeoutMS: 10000,
 
-                socketTimeoutMS:
-                    45000,
-            }
-        );
+            socketTimeoutMS: 45000,
+        });
 
+        console.log('✅ MongoDB connected successfully.');
 
         console.log(
-            '✅ MongoDB connected successfully.'
-        );
-
-
-        console.log(
-            `📦 Database: ${
-                mongoose.connection.name
-            }`
+            `📦 Database: ${mongoose.connection.name}`
         );
 
     } catch (error) {
@@ -423,70 +322,44 @@ async function connectDatabase() {
             error.message
         );
 
-        process.exit(1);
+        throw error;
     }
 }
 
-
 // ======================================================
-// MongoDB events
-// ======================================================
-
-mongoose.connection.on(
-    'connected',
-    () => {
-
-        console.log(
-            '🟢 MongoDB connection established.'
-        );
-    }
-);
-
-
-mongoose.connection.on(
-    'error',
-    (error) => {
-
-        console.error(
-            '❌ MongoDB error:',
-            error
-        );
-    }
-);
-
-
-mongoose.connection.on(
-    'disconnected',
-    () => {
-
-        console.warn(
-            '🟡 MongoDB disconnected.'
-        );
-    }
-);
-
-
-// ======================================================
-// Graceful shutdown
+// MongoDB Events
 // ======================================================
 
-async function shutdown(
-    signal
-) {
+mongoose.connection.on('connected', () => {
+
+    console.log('🟢 MongoDB connection established.');
+});
+
+mongoose.connection.on('error', (error) => {
+
+    console.error('❌ MongoDB error:', error);
+});
+
+mongoose.connection.on('disconnected', () => {
+
+    console.warn('🟡 MongoDB disconnected.');
+});
+
+// ======================================================
+// Graceful Shutdown
+// ======================================================
+
+async function shutdown(signal) {
 
     console.log(
         `\n🛑 ${signal} received. Shutting down...`
     );
 
-
     try {
 
         await mongoose.connection.close();
 
-        console.log(
-            '✅ MongoDB connection closed.'
-        );
-
+        console.log('✅ MongoDB connection closed.');
 
         process.exit(0);
 
@@ -501,89 +374,72 @@ async function shutdown(
     }
 }
 
+process.on('SIGINT', () => shutdown('SIGINT'));
 
-process.on(
-    'SIGINT',
-    () => shutdown('SIGINT')
-);
-
-
-process.on(
-    'SIGTERM',
-    () => shutdown('SIGTERM')
-);
-
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // ======================================================
-// Start server
+// Start Server
 // ======================================================
 
 async function startServer() {
 
     await connectDatabase();
 
+    app.listen(PORT, () => {
 
-    app.listen(
-        PORT,
-        () => {
+        console.log('');
 
-            console.log('');
-            console.log(
-                '=========================================='
-            );
-            console.log(
-                '        🚀 OSTUDIO BACKEND SERVER'
-            );
-            console.log(
-                '=========================================='
-            );
+        console.log('==========================================');
 
-            console.log(
-                `🌐 Server: http://localhost:${PORT}`
-            );
+        console.log('        🚀 OSTUDIO BACKEND SERVER');
 
-            console.log(
-                `❤️ Health: http://localhost:${PORT}/api/health`
-            );
+        console.log('==========================================');
 
-            console.log(
-                `🎨 Frontend: ${FRONTEND_URL}`
-            );
+        console.log(
+            `🌐 Server: http://localhost:${PORT}`
+        );
 
-            console.log(
-                '🔐 Authentication: Firebase + MongoDB'
-            );
+        console.log(
+            `❤️ Health: http://localhost:${PORT}/api/health`
+        );
 
-            console.log(
-                '📦 Database: MongoDB'
-            );
+        console.log(
+            `🎨 Frontend: ${FRONTEND_URL}`
+        );
 
-            console.log(
-                '=========================================='
-            );
-            console.log('');
-        }
-    );
+        console.log(
+            '🔐 Authentication: Firebase + MongoDB'
+        );
+
+        console.log('📦 Database: MongoDB');
+
+        console.log(
+            `📁 Uploads: ${uploadsDirectory}`
+        );
+
+        console.log('==========================================');
+
+        console.log('');
+    });
 }
-
 
 // ======================================================
 // Start
 // ======================================================
 
-startServer()
-    .catch(
-        (error) => {
+if (require.main === module) {
 
-            console.error(
-                '❌ Failed to start server:',
-                error
-            );
+    startServer().catch((error) => {
 
-            process.exit(1);
-        }
-    );
+        console.error(
+            '❌ Failed to start server:',
+            error
+        );
 
+        process.exit(1);
+    });
+}
 
 // ======================================================
 // Export

@@ -1,78 +1,110 @@
-// backend/config/firebaseAdmin.js
 
-const admin = require('firebase-admin');
+import { auth } from './firebase';
 
+/* =========================================================
+   API Configuration
+========================================================= */
 
-// ======================================================
-// Firebase Admin Configuration
-// ======================================================
+const API_BASE_URL = (
+    import.meta.env.VITE_API_URL ||
+    'http://localhost:8080/api'
+).replace(/\/+$/, '');
 
-const {
-    FIREBASE_PROJECT_ID,
-    FIREBASE_CLIENT_EMAIL,
-    FIREBASE_PRIVATE_KEY,
-} = process.env;
+/* =========================================================
+   Authentication
+========================================================= */
 
+async function getAuthToken() {
+    // Wait until Firebase restores the authentication session.
+    await auth.authStateReady();
 
-// ======================================================
-// Validate Environment Variables
-// ======================================================
+    const currentUser = auth.currentUser;
 
-const missingFirebaseConfig = [];
+    if (!currentUser) {
+        throw new Error('المستخدم غير مسجل الدخول.');
+    }
 
-if (!FIREBASE_PROJECT_ID) {
-    missingFirebaseConfig.push('FIREBASE_PROJECT_ID');
+    return await currentUser.getIdToken();
 }
 
-if (!FIREBASE_CLIENT_EMAIL) {
-    missingFirebaseConfig.push('FIREBASE_CLIENT_EMAIL');
-}
+/* =========================================================
+   Upload Project Brief
+========================================================= */
 
-if (!FIREBASE_PRIVATE_KEY) {
-    missingFirebaseConfig.push('FIREBASE_PRIVATE_KEY');
-}
+export async function uploadProjectBrief(file) {
+    // Validate selected file
+    if (
+        !file ||
+        typeof file !== 'object' ||
+        typeof file.name !== 'string'
+    ) {
+        throw new Error('اختار ملف Brief صالحًا قبل الرفع.');
+    }
 
-if (missingFirebaseConfig.length > 0) {
-    throw new Error(
-        `❌ Missing Firebase Admin configuration: ${missingFirebaseConfig.join(', ')}`
+    // Get Firebase ID Token
+    const token = await getAuthToken();
+
+    // Prepare multipart form data
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Send file to Backend
+    const response = await fetch(
+        `${API_BASE_URL}/manager/projects/upload-brief`,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+        }
     );
+
+    // Parse response
+    let data = null;
+
+    try {
+        data = await response.json();
+    } catch {
+        data = null;
+    }
+
+    // Handle errors
+    if (!response.ok) {
+        const error = new Error(
+            data?.message ||
+            data?.error ||
+            `فشل رفع الملف (HTTP ${response.status}).`
+        );
+
+        error.status = response.status;
+        error.data = data;
+
+        throw error;
+    }
+
+    // Validate returned file URL
+    if (!data?.url) {
+        throw new Error(
+            'تم استلام رد من السيرفر، لكن رابط الملف غير موجود.'
+        );
+    }
+
+    // Return normalized file information
+    return {
+        url: data.url,
+        fileName: data.fileName || file.name,
+        mimeType: data.mimeType || file.type || '',
+        size: data.size ?? file.size,
+    };
 }
 
+/* =========================================================
+   Default Export
+========================================================= */
 
-// ======================================================
-// Prepare Private Key
-// ======================================================
-
-const privateKey = FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
-
-
-// ======================================================
-// Initialize Firebase Admin
-// ======================================================
-
-if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: FIREBASE_PROJECT_ID,
-            clientEmail: FIREBASE_CLIENT_EMAIL,
-            privateKey,
-        }),
-    });
-}
-
-
-// ======================================================
-// Firebase Admin Services
-// ======================================================
-
-const firebaseAdminAuth = admin.auth();
-
-
-// ======================================================
-// Exports
-// ======================================================
-
-module.exports = {
-    admin,
-    firebaseAdminAuth,
+const uploadService = {
+    uploadProjectBrief,
 };
+
+export default uploadService;
