@@ -1443,7 +1443,7 @@ managerNotes:
                                 <input
                                     type="file"
                                     onChange={(event) => updateForm('briefFile', event.target.files?.[0] || null)}
-                                    disabled={saving || creating}
+                                    disabled={creating}
                                 />
                                 {form.briefFile && <small>الملف المختار: {form.briefFile.name}</small>}
                                 {form.briefName && !form.briefFile && <small>الملف الحالي: {form.briefName}</small>}

@@ -1,6 +1,4 @@
 
-// backend/server.js
-
 require('dotenv').config();
 
 const express = require('express');
@@ -29,22 +27,11 @@ const FRONTEND_URL =
     process.env.FRONTEND_URL ||
     'http://localhost:5173';
 
-// Optional: multiple frontend origins separated by commas
 const FRONTEND_URLS =
     process.env.FRONTEND_URLS || '';
 
 // ======================================================
-// Basic Configuration Validation
-// ======================================================
-
-if (!MONGO_URI) {
-    console.error('❌ Missing MongoDB connection string.');
-    console.error('Add MONGO_URI to backend/.env');
-    process.exit(1);
-}
-
-// ======================================================
-// CORS
+// CORS Configuration
 // ======================================================
 
 function normalizeOrigin(origin) {
@@ -54,9 +41,8 @@ function normalizeOrigin(origin) {
 const allowedOrigins = [
     FRONTEND_URL,
     ...FRONTEND_URLS.split(','),
-    'https://ostudio-backend-pm3p.vercel.app',
     'http://localhost:5173',
-    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5173'
 ]
     .filter(Boolean)
     .map(normalizeOrigin);
@@ -64,8 +50,7 @@ const allowedOrigins = [
 app.use(
     cors({
         origin: function (origin, callback) {
-
-            // Allow requests without an Origin header
+            // Allow requests without Origin
             if (!origin) {
                 return callback(null, true);
             }
@@ -76,7 +61,7 @@ app.use(
                 return callback(null, true);
             }
 
-            console.warn(`⚠️ CORS blocked origin: ${origin}`);
+            console.warn(`CORS blocked origin: ${origin}`);
 
             return callback(new Error('Not allowed by CORS'));
         },
@@ -89,13 +74,13 @@ app.use(
             'PUT',
             'PATCH',
             'DELETE',
-            'OPTIONS',
+            'OPTIONS'
         ],
 
         allowedHeaders: [
             'Content-Type',
-            'Authorization',
-        ],
+            'Authorization'
+        ]
     })
 );
 
@@ -105,20 +90,23 @@ app.use(
 
 app.use(
     express.json({
-        limit: '10mb',
+        limit: '10mb'
     })
 );
 
 app.use(
     express.urlencoded({
         extended: true,
-        limit: '10mb',
+        limit: '10mb'
     })
 );
 
 // ======================================================
-// Static File Storage
+// Static Files
 // ======================================================
+
+// Local static files only.
+// Vercel filesystem is not persistent storage.
 
 const uploadsDirectory = path.join(__dirname, 'uploads');
 
@@ -129,15 +117,13 @@ app.use('/uploads', express.static(uploadsDirectory));
 // ======================================================
 
 app.use((req, res, next) => {
-
     const startedAt = Date.now();
 
     res.on('finish', () => {
-
         const duration = Date.now() - startedAt;
 
         console.log(
-            `${req.method} ${req.originalUrl} → ${res.statusCode} (${duration}ms)`
+            `${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`
         );
     });
 
@@ -145,65 +131,116 @@ app.use((req, res, next) => {
 });
 
 // ======================================================
-// Health Check
+// Health Checks
 // ======================================================
 
 app.get('/', (req, res) => {
-
     return res.status(200).json({
-
         success: true,
-
         message: 'OSTUDIO backend is running.',
-
         service: 'Ostudio API',
-
         status: 'online',
-
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString()
     });
 });
 
 app.get('/api/health', (req, res) => {
-
     return res.status(200).json({
-
         success: true,
-
-        message: 'OSTUDIO API is healthy.',
-
+        message: 'OSTUDIO API health check.',
         database:
             mongoose.connection.readyState === 1
                 ? 'connected'
                 : 'disconnected',
-
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString()
     });
+});
+
+// ======================================================
+// MongoDB Connection - Serverless Compatible
+// ======================================================
+
+let mongoConnectionPromise = null;
+
+async function connectDatabase() {
+    if (!MONGO_URI) {
+        throw new Error(
+            'Missing MONGO_URI environment variable.'
+        );
+    }
+
+    // Reuse existing connection
+    if (mongoose.connection.readyState === 1) {
+        return mongoose.connection;
+    }
+
+    // Reuse an ongoing connection attempt
+    if (mongoConnectionPromise) {
+        return mongoConnectionPromise;
+    }
+
+    mongoConnectionPromise = mongoose.connect(MONGO_URI, {
+        serverSelectionTimeoutMS: 10000,
+        socketTimeoutMS: 45000
+    });
+
+    try {
+        await mongoConnectionPromise;
+
+        console.log('MongoDB connected successfully.');
+
+        return mongoose.connection;
+    } catch (error) {
+        mongoConnectionPromise = null;
+
+        console.error(
+            'MongoDB connection failed:',
+            error.message
+        );
+
+        throw error;
+    }
+}
+
+// ======================================================
+// MongoDB Events
+// ======================================================
+
+mongoose.connection.on('connected', () => {
+    console.log('MongoDB connection established.');
+});
+
+mongoose.connection.on('error', (error) => {
+    console.error('MongoDB error:', error.message);
+});
+
+mongoose.connection.on('disconnected', () => {
+    console.warn('MongoDB disconnected.');
+});
+
+// ======================================================
+// Database Middleware
+// ======================================================
+
+// Ensure MongoDB is connected before API requests.
+// Health checks above remain accessible independently.
+
+app.use((req, res, next) => {
+    connectDatabase()
+        .then(() => next())
+        .catch(next);
 });
 
 // ======================================================
 // API Routes
 // ======================================================
 
-// Authentication
 const authRoutes = require('./routes/auth');
-
-// Admin
 const adminRoutes = require('./routes/admin');
-
-// Manager
 const managerRoutes = require('./routes/manager');
-
-// Account Manager
 const accountManagerRoutes = require('./routes/accountManager');
-
-// Coordinator
 const coordinatorRoutes = require('./routes/coordinator');
-
-// Designer
 const designerRoutes = require('./routes/designer');
-
-// Notifications
 const notificationRoutes = require('./routes/notifications');
 
 // ======================================================
@@ -229,16 +266,11 @@ app.use('/api/notifications', notificationRoutes);
 // ======================================================
 
 app.use((req, res) => {
-
     return res.status(404).json({
-
         success: false,
-
         message: 'API endpoint not found.',
-
         path: req.originalUrl,
-
-        method: req.method,
+        method: req.method
     });
 });
 
@@ -247,32 +279,25 @@ app.use((req, res) => {
 // ======================================================
 
 app.use((err, req, res, next) => {
-
-    console.error('❌ Server error:', err);
+    console.error('Server error:', err);
 
     // CORS error
     if (err.message === 'Not allowed by CORS') {
-
         return res.status(403).json({
-
             success: false,
-
-            message: 'CORS policy blocked this request.',
+            message: 'CORS policy blocked this request.'
         });
     }
 
-    // JSON body parsing error
+    // JSON parsing error
     if (
         err instanceof SyntaxError &&
         err.status === 400 &&
         'body' in err
     ) {
-
         return res.status(400).json({
-
             success: false,
-
-            message: 'Invalid JSON request body.',
+            message: 'Invalid JSON request body.'
         });
     }
 
@@ -282,167 +307,84 @@ app.use((err, req, res, next) => {
         500;
 
     return res.status(statusCode).json({
-
         success: false,
-
         message:
             statusCode === 500
                 ? 'Internal server error.'
-                : err.message || 'Request failed.',
+                : err.message || 'Request failed.'
     });
 });
 
 // ======================================================
-// MongoDB Connection
-// ======================================================
-
-async function connectDatabase() {
-
-    try {
-
-        console.log('🔄 Connecting to MongoDB...');
-
-        await mongoose.connect(MONGO_URI, {
-
-            serverSelectionTimeoutMS: 10000,
-
-            socketTimeoutMS: 45000,
-        });
-
-        console.log('✅ MongoDB connected successfully.');
-
-        console.log(
-            `📦 Database: ${mongoose.connection.name}`
-        );
-
-    } catch (error) {
-
-        console.error(
-            '❌ MongoDB connection failed:',
-            error.message
-        );
-
-        throw error;
-    }
-}
-
-// ======================================================
-// MongoDB Events
-// ======================================================
-
-mongoose.connection.on('connected', () => {
-
-    console.log('🟢 MongoDB connection established.');
-});
-
-mongoose.connection.on('error', (error) => {
-
-    console.error('❌ MongoDB error:', error);
-});
-
-mongoose.connection.on('disconnected', () => {
-
-    console.warn('🟡 MongoDB disconnected.');
-});
-
-// ======================================================
-// Graceful Shutdown
-// ======================================================
-
-async function shutdown(signal) {
-
-    console.log(
-        `\n🛑 ${signal} received. Shutting down...`
-    );
-
-    try {
-
-        await mongoose.connection.close();
-
-        console.log('✅ MongoDB connection closed.');
-
-        process.exit(0);
-
-    } catch (error) {
-
-        console.error(
-            '❌ Error during shutdown:',
-            error
-        );
-
-        process.exit(1);
-    }
-}
-
-process.on('SIGINT', () => shutdown('SIGINT'));
-
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-// ======================================================
-// Start Server
+// Start Server - Local Development Only
 // ======================================================
 
 async function startServer() {
-
     await connectDatabase();
 
     app.listen(PORT, () => {
-
         console.log('');
-
+        console.log('==========================================');
+        console.log('       OSTUDIO BACKEND SERVER');
         console.log('==========================================');
 
-        console.log('        🚀 OSTUDIO BACKEND SERVER');
+        console.log(`Server: http://localhost:${PORT}`);
+
+        console.log(
+            `Health: http://localhost:${PORT}/api/health`
+        );
+
+        console.log(`Frontend: ${FRONTEND_URL}`);
+
+        console.log('Authentication: Firebase + MongoDB');
+
+        console.log('Database: MongoDB');
+
+        console.log(`Uploads: ${uploadsDirectory}`);
 
         console.log('==========================================');
-
-        console.log(
-            `🌐 Server: http://localhost:${PORT}`
-        );
-
-        console.log(
-            `❤️ Health: http://localhost:${PORT}/api/health`
-        );
-
-        console.log(
-            `🎨 Frontend: ${FRONTEND_URL}`
-        );
-
-        console.log(
-            '🔐 Authentication: Firebase + MongoDB'
-        );
-
-        console.log('📦 Database: MongoDB');
-
-        console.log(
-            `📁 Uploads: ${uploadsDirectory}`
-        );
-
-        console.log('==========================================');
-
         console.log('');
     });
 }
 
 // ======================================================
-// Start
+// Graceful Shutdown - Local Development
+// ======================================================
+
+async function shutdown(signal) {
+    console.log(`${signal} received. Shutting down...`);
+
+    try {
+        await mongoose.connection.close();
+
+        console.log('MongoDB connection closed.');
+
+        process.exit(0);
+    } catch (error) {
+        console.error('Shutdown error:', error);
+
+        process.exit(1);
+    }
+}
+
+// ======================================================
+// Local Startup
 // ======================================================
 
 if (require.main === module) {
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
 
     startServer().catch((error) => {
-
-        console.error(
-            '❌ Failed to start server:',
-            error
-        );
+        console.error('Failed to start server:', error.message);
 
         process.exit(1);
     });
 }
 
 // ======================================================
-// Export
+// Export Express App for Vercel
 // ======================================================
 
 module.exports = app;

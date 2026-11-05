@@ -2,9 +2,16 @@
 
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
 const mongoose = require('mongoose');
+const cloudinary = require('cloudinary').v2;
+
+// Cloudinary credentials are read only from backend environment variables.
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+});
 
 const router = express.Router();
 
@@ -618,29 +625,107 @@ router.get('/coordinators', async (req, res) => {
 
 // ======================================================
 // UPLOAD PROJECT BRIEF
-// Stores arbitrary file types under backend/uploads/briefs.
+// Uploads files to Cloudinary instead of the ephemeral Vercel filesystem.
+// This server-proxied endpoint is intentionally capped below Vercel's
+// 4.5 MB function request-body limit. Use a signed direct browser upload
+// for larger files (see setup notes supplied with this file).
 // Access remains behind authenticateUser + requireManager.
 // ======================================================
-const briefUploadDir = path.join(__dirname, '..', 'uploads', 'briefs');
-fs.mkdirSync(briefUploadDir, { recursive: true });
-const briefStorage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, briefUploadDir),
-    filename: (_req, file, cb) => {
-        const safeOriginal = path.basename(file.originalname || 'brief-file').replace(/[^a-zA-Z0-9._-]/g, '_');
-        cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${safeOriginal}`);
+const MAX_BRIEF_SIZE_BYTES = 4 * 1024 * 1024;
+
+const briefUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: MAX_BRIEF_SIZE_BYTES,
+        files: 1,
     },
 });
-const briefUpload = multer({ storage: briefStorage, limits: { fileSize: 500 * 1024 * 1024 } });
-router.post('/projects/upload-brief', briefUpload.single('file'), (req, res) => {
-    if (!req.file) return res.status(400).json({ success: false, message: 'لم يتم اختيار ملف.' });
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    return res.status(201).json({
-        success: true,
-        url: `${baseUrl}/uploads/briefs/${encodeURIComponent(req.file.filename)}`,
-        fileName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-    });
+
+router.post(
+    '/projects/upload-brief',
+    briefUpload.single('file'),
+    async (req, res) => {
+        try {
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'لم يتم اختيار ملف.',
+                });
+            }
+
+            const missingConfig = [
+                'CLOUDINARY_CLOUD_NAME',
+                'CLOUDINARY_API_KEY',
+                'CLOUDINARY_API_SECRET',
+            ].filter((key) => !process.env[key]);
+
+            if (missingConfig.length) {
+                console.error('Cloudinary configuration is incomplete:', missingConfig.join(', '));
+                return res.status(503).json({
+                    success: false,
+                    message: 'خدمة رفع الملفات غير مهيأة على الخادم.',
+                });
+            }
+
+            const safeOriginalName = String(req.file.originalname || 'brief-file')
+                .replace(/[\/]/g, '_')
+                .replace(/[^a-zA-Z0-9._-]/g, '_')
+                .slice(0, 120);
+
+            const uploadResult = await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    {
+                        resource_type: 'auto',
+                        folder: 'ostudio/briefs',
+                        use_filename: false,
+                        unique_filename: true,
+                        filename_override: safeOriginalName,
+                    },
+                    (error, result) => {
+                        if (error) return reject(error);
+                        if (!result) return reject(new Error('Cloudinary returned an empty upload result.'));
+                        resolve(result);
+                    }
+                );
+
+                uploadStream.end(req.file.buffer);
+            });
+
+            return res.status(201).json({
+                success: true,
+                url: uploadResult.secure_url,
+                fileName: req.file.originalname,
+                mimeType: req.file.mimetype,
+                size: uploadResult.bytes || req.file.size,
+                publicId: uploadResult.public_id,
+                resourceType: uploadResult.resource_type,
+                format: uploadResult.format || null,
+            });
+        } catch (error) {
+            console.error('Manager Cloudinary upload error:', error);
+            return res.status(502).json({
+                success: false,
+                message: 'فشل رفع الملف إلى خدمة التخزين. حاول مرة أخرى.',
+            });
+        }
+    }
+);
+
+// Handle Multer size/type parsing errors for this route with a clear response.
+router.use((err, req, res, next) => {
+    if (req.path === '/projects/upload-brief' && err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({
+                success: false,
+                message: 'حجم الملف أكبر من 4 MB لهذا المسار. الملفات الأكبر تحتاج رفعًا مباشرًا إلى Cloudinary من المتصفح.',
+            });
+        }
+        return res.status(400).json({
+            success: false,
+            message: 'تعذر قراءة الملف المرفوع.',
+        });
+    }
+    return next(err);
 });
 
 // ======================================================
