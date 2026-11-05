@@ -787,7 +787,10 @@ router.put(
 // ======================================================
 
 router.get(
-    '/designers',
+    [
+        '/designers',
+        '/presentation-designers',
+    ],
     async (req, res) => {
         try {
             const designers =
