@@ -596,7 +596,7 @@ async function approveUser(userId, role = null) {
 
     const token = await firebaseUser.getIdToken();
     const apiBaseUrl = String(
-        import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+        import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
     ).replace(/\/+$/, '');
 
     const response = await fetch(
