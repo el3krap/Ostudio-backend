@@ -55,3 +55,22 @@ docker-compose.override.yml
 
 # Project backup
 backend_backup/
+
+# Dependencies
+**/node_modules/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build output
+**/dist/
+**/build/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
