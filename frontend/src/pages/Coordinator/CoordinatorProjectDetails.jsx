@@ -23,7 +23,10 @@ import {
 import {
     getProject,
     updateProject,
-    updateProjectStatus
+    updateProjectStatus,
+    createCheckpoint,
+    reviewCheckpoint,
+    markCheckpointsDoneAll
 } from '../../services/coordinatorService';
 
 /* =========================================================
@@ -144,6 +147,11 @@ export default function CoordinatorProjectDetails() {
         success,
         setSuccess
     ] = useState('');
+
+    const [newCheckpointTitle, setNewCheckpointTitle] = useState('');
+    const [newCheckpointDescription, setNewCheckpointDescription] = useState('');
+    const [checkpointBusy, setCheckpointBusy] = useState('');
+    const [revisionDrafts, setRevisionDrafts] = useState({});
 
     const [
         isEditing,
@@ -540,6 +548,57 @@ export default function CoordinatorProjectDetails() {
         };
 
     /* =====================================================
+       Checkpoint Review Workflow
+    ===================================================== */
+
+    const refreshProjectFromResponse = (response) => {
+        const updated = response?.project || response?.data?.project || response?.data || response;
+        if (updated && typeof updated === 'object' && (updated._id || updated.projectName)) {
+            setProject(updated);
+            fillForm(updated);
+        } else {
+            loadProject();
+        }
+    };
+
+    const handleCreateCheckpoint = async (event) => {
+        event.preventDefault();
+        if (!newCheckpointTitle.trim()) return;
+        try {
+            setCheckpointBusy('create'); setError(''); setSuccess('');
+            const response = await createCheckpoint(projectId, { title: newCheckpointTitle, description: newCheckpointDescription });
+            refreshProjectFromResponse(response);
+            setNewCheckpointTitle(''); setNewCheckpointDescription('');
+            setSuccess('تمت إضافة المرحلة وإرسال إشعار للمصمم.');
+        } catch (err) { setError(err?.message || 'تعذر إضافة المرحلة.'); }
+        finally { setCheckpointBusy(''); }
+    };
+
+    const handleCheckpointReview = async (checkpoint, action) => {
+        const id = checkpoint?._id || checkpoint?.id || checkpoint?.checkpointId;
+        if (!id) { setError('معرف المرحلة غير موجود.'); return; }
+        const revisionNote = revisionDrafts[id] || '';
+        if (action === 'request_revision' && !revisionNote.trim()) { setError('اكتب ملاحظات التعديل قبل الإرسال.'); return; }
+        try {
+            setCheckpointBusy(String(id)); setError(''); setSuccess('');
+            const response = await reviewCheckpoint(projectId, id, action, revisionNote);
+            refreshProjectFromResponse(response);
+            setSuccess(action === 'approve' ? 'تم اعتماد المرحلة.' : 'تم إرسال طلب التعديل للمصمم.');
+        } catch (err) { setError(err?.message || 'تعذرت مراجعة المرحلة.'); }
+        finally { setCheckpointBusy(''); }
+    };
+
+    const handleDoneAll = async () => {
+        try {
+            setCheckpointBusy('done-all'); setError(''); setSuccess('');
+            const response = await markCheckpointsDoneAll(projectId);
+            refreshProjectFromResponse(response);
+            setSuccess('تم اعتماد جميع المراحل وفتح مرحلة Render للمصمم.');
+        } catch (err) { setError(err?.message || 'لا يمكن إنهاء المراحل قبل اعتمادها جميعًا.'); }
+        finally { setCheckpointBusy(''); }
+    };
+
+    /* =====================================================
        Logout
     ===================================================== */
 
@@ -710,10 +769,9 @@ export default function CoordinatorProjectDetails() {
     const completedCheckpoints =
         checkpoints.filter(
             (checkpoint) =>
-                checkpoint.isCompleted ===
-                    true ||
-                checkpoint.completed ===
-                    true
+                checkpoint.status === 'approved' ||
+                checkpoint.isCompleted === true ||
+                checkpoint.completed === true
         ).length;
 
     const checkpointProgress =
@@ -1380,120 +1438,52 @@ export default function CoordinatorProjectDetails() {
 
                         </section>
 
-                        {/* Checkpoints */}
-
-                        <section className="side-card">
-
+                        {/* Checkpoint Review Workflow */}
+                        <section className="side-card checkpoint-review-card">
                             <div className="side-card-header">
-
-                                <h2>
-                                    Checkpoints
-                                </h2>
-
-                                <span>
-                                    {
-                                        completedCheckpoints
-                                    }
-                                    /
-                                    {
-                                        checkpoints.length
-                                    }
-                                </span>
-
+                                <h2>Checkpoint Review</h2>
+                                <span>{completedCheckpoints}/{checkpoints.length} approved</span>
                             </div>
-
                             <div className="progress-wrapper">
-
-                                <div className="progress-track">
-
-                                    <div
-                                        className="progress-bar"
-                                        style={{
-                                            width: `${checkpointProgress}%`
-                                        }}
-                                    />
-
-                                </div>
-
-                                <span>
-                                    {
-                                        checkpointProgress
-                                    }
-                                    %
-                                </span>
-
+                                <div className="progress-track"><div className="progress-bar" style={{ width: `${checkpointProgress}%` }} /></div>
+                                <span>{checkpointProgress}%</span>
                             </div>
-
-                            {checkpoints.length ===
-                            0 ? (
-                                <div className="no-checkpoints">
-                                    لا توجد Checkpoints.
-                                </div>
-                            ) : (
+                            {!project.isDoneAll && (
+                                <form onSubmit={handleCreateCheckpoint} style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
+                                    <input value={newCheckpointTitle} onChange={(e) => setNewCheckpointTitle(e.target.value)} placeholder="Checkpoint title" required />
+                                    <textarea value={newCheckpointDescription} onChange={(e) => setNewCheckpointDescription(e.target.value)} placeholder="Description (optional)" rows={2} />
+                                    <button type="submit" disabled={checkpointBusy === 'create' || !newCheckpointTitle.trim()}>{checkpointBusy === 'create' ? 'Adding...' : 'Add Checkpoint'}</button>
+                                </form>
+                            )}
+                            {checkpoints.length === 0 ? <div className="no-checkpoints">لا توجد مراحل حتى الآن.</div> : (
                                 <div className="checkpoint-list">
-
-                                    {checkpoints.map(
-                                        (
-                                            checkpoint,
-                                            index
-                                        ) => {
-                                            const completed =
-                                                checkpoint.isCompleted ===
-                                                    true ||
-                                                checkpoint.completed ===
-                                                    true;
-
-                                            return (
-                                                <div
-                                                    className="checkpoint-item"
-                                                    key={
-                                                        checkpoint.id ||
-                                                        checkpoint._id ||
-                                                        index
-                                                    }
-                                                >
-
-                                                    <div
-                                                        className={
-                                                            completed
-                                                                ? 'checkpoint-check completed'
-                                                                : 'checkpoint-check'
-                                                        }
-                                                    >
-                                                        {completed
-                                                            ? '✓'
-                                                            : index +
-                                                              1}
+                                    {checkpoints.map((checkpoint, index) => {
+                                        const id = checkpoint._id || checkpoint.id || checkpoint.checkpointId || index;
+                                        const status = checkpoint.status || (checkpoint.isCompleted ? 'approved' : 'pending');
+                                        const submittedFile = checkpoint.fileUrl || checkpoint.imageLink;
+                                        const busy = checkpointBusy === String(id);
+                                        return (
+                                            <div className="checkpoint-item" key={id} style={{ display: 'grid', gap: 8 }}>
+                                                <div><strong>{index + 1}. {checkpoint.title || `Checkpoint ${index + 1}`}</strong><div><small>Status: {status}</small></div></div>
+                                                {checkpoint.description && <p>{checkpoint.description}</p>}
+                                                {submittedFile && <a href={submittedFile} target="_blank" rel="noreferrer">Open submitted file — {checkpoint.fileName || 'View file'}</a>}
+                                                {checkpoint.revisionNote && status === 'revision_requested' && <p>Revision note: {checkpoint.revisionNote}</p>}
+                                                {Array.isArray(checkpoint.revisionHistory) && checkpoint.revisionHistory.length > 0 && <small>Previous submissions: {checkpoint.revisionHistory.length}</small>}
+                                                {submittedFile && status !== 'approved' && !project.isDoneAll && (
+                                                    <div style={{ display: 'grid', gap: 6 }}>
+                                                        <button type="button" disabled={busy} onClick={() => handleCheckpointReview(checkpoint, 'approve')}>Approve</button>
+                                                        <textarea rows={2} placeholder="Revision instructions" value={revisionDrafts[id] || ''} onChange={(e) => setRevisionDrafts(prev => ({ ...prev, [id]: e.target.value }))} />
+                                                        <button type="button" disabled={busy || !(revisionDrafts[id] || '').trim()} onClick={() => handleCheckpointReview(checkpoint, 'request_revision')}>Request Revision</button>
                                                     </div>
-
-                                                    <div>
-                                                        <strong>
-                                                            {
-                                                                checkpoint.title ||
-                                                                `Checkpoint ${
-                                                                    index +
-                                                                    1
-                                                                }`
-                                                            }
-                                                        </strong>
-
-                                                        {checkpoint.note && (
-                                                            <span>
-                                                                {
-                                                                    checkpoint.note
-                                                                }
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                </div>
-                                            );
-                                        }
-                                    )}
-
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
-
+                            <button type="button" onClick={handleDoneAll} disabled={Boolean(project.isDoneAll) || checkpoints.length === 0 || completedCheckpoints !== checkpoints.length || Boolean(checkpointBusy)} style={{ marginTop: 12 }}>
+                                {project.isDoneAll ? 'Done All — Render Unlocked ✓' : 'Done All'}
+                            </button>
                         </section>
 
                     </aside>

@@ -189,36 +189,28 @@ router.post(
             }
 
             if (Array.isArray(checkpoints)) {
-                projectData.checkpoints = checkpoints;
+                projectData.checkpoints = checkpoints.map((item) => ({
+                    title: String(item?.title || '').trim(),
+                    description: String(item?.description || item?.note || '').trim(),
+                    status: 'pending',
+                    isCompleted: false,
+                })).filter((item) => item.title);
             } else {
                 projectData.checkpoints = [
-                    {
-                        title: 'التصميم الأولي',
-                        isCompleted: false
-                    },
-                    {
-                        title: 'التعديلات',
-                        isCompleted: false
-                    },
-                    {
-                        title: 'التصميم النهائي',
-                        isCompleted: false
-                    }
+                    { title: 'التصميم الأولي', description: '', status: 'pending', isCompleted: false },
+                    { title: 'التعديلات', description: '', status: 'pending', isCompleted: false },
+                    { title: 'التصميم النهائي', description: '', status: 'pending', isCompleted: false },
                 ];
             }
 
-            if (isDoneAll !== undefined) {
-                projectData.isDoneAll = isDoneAll;
-            }
-
-            if (renderFileLink !== undefined) {
-                projectData.renderFileLink = renderFileLink;
-            }
-
-            if (presentationFileLink !== undefined) {
-                projectData.presentationFileLink =
-                    presentationFileLink;
-            }
+            // Workflow state and uploaded files are controlled by dedicated,
+            // role-protected endpoints, never by project creation payloads.
+            projectData.isDoneAll = false;
+            projectData.renderFileLink = '';
+            projectData.renderFileName = '';
+            projectData.presentationFileLink = '';
+            projectData.presentationFileName = '';
+            projectData.isPresentationApproved = false;
 
             if (coordinatorNotes !== undefined) {
                 projectData.coordinatorNotes =
@@ -630,10 +622,6 @@ router.put(
                 'description',
                 'startDate',
                 'deadline',
-                'checkpoints',
-                'isDoneAll',
-                'renderFileLink',
-                'presentationFileLink',
                 'coordinatorNotes',
                 'status'
             ];

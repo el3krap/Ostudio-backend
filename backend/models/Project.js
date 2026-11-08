@@ -1,4 +1,77 @@
+   
 const mongoose = require('mongoose');
+
+// ======================================================
+// Checkpoint Review History Schema
+// ======================================================
+const checkpointReviewHistorySchema = new mongoose.Schema(
+    {
+        action: {
+            type: String,
+            enum: ['approve', 'request_revision'],
+            required: true,
+        },
+
+        note: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        reviewedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+
+        reviewedAt: {
+            type: Date,
+            default: Date.now,
+        },
+    },
+    {
+        _id: true,
+    }
+);
+
+// ======================================================
+// Checkpoint File History Schema
+// ======================================================
+const checkpointFileHistorySchema = new mongoose.Schema(
+    {
+        fileUrl: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        imageLink: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        fileName: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        uploadedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+
+        uploadedAt: {
+            type: Date,
+            default: Date.now,
+        },
+    },
+    {
+        _id: true,
+    }
+);
 
 // ======================================================
 // Checkpoint Schema
@@ -19,6 +92,7 @@ const checkpointSchema = new mongoose.Schema(
         },
 
         // Completion status
+        // This becomes true only after Coordinator approval.
         isCompleted: {
             type: Boolean,
             default: false,
@@ -50,6 +124,82 @@ const checkpointSchema = new mongoose.Schema(
             type: String,
             default: '',
             trim: true,
+        },
+
+        // --------------------------------------------------
+        // Review Workflow
+        // --------------------------------------------------
+
+        // Canonical workflow status, synchronized with reviewStatus
+        // for compatibility with existing frontend / legacy routes.
+        status: {
+            type: String,
+            enum: [
+                'pending',
+                'submitted',
+                'approved',
+                'revision_requested',
+            ],
+            default: 'pending',
+            index: true,
+        },
+
+        reviewStatus: {
+            type: String,
+            enum: [
+                'pending',
+                'submitted',
+                'approved',
+                'revision_requested',
+            ],
+            default: 'pending',
+            index: true,
+        },
+
+        uploadedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+
+        uploadedAt: {
+            type: Date,
+            default: null,
+        },
+
+        revisionNote: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        reviewedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+
+        reviewedAt: {
+            type: Date,
+            default: null,
+        },
+
+        // --------------------------------------------------
+        // Uploaded File History
+        // --------------------------------------------------
+
+        fileHistory: {
+            type: [checkpointFileHistorySchema],
+            default: [],
+        },
+
+        // --------------------------------------------------
+        // Review History
+        // --------------------------------------------------
+
+        reviewHistory: {
+            type: [checkpointReviewHistorySchema],
+            default: [],
         },
     },
     {
@@ -259,6 +409,7 @@ projectSchema.index({ deadline: 1 });
 // ======================================================
 // Virtual - Checkpoint Progress
 // ======================================================
+// Progress is calculated from Coordinator-approved checkpoints.
 projectSchema.virtual('checkpointProgress').get(function () {
     const checkpoints = Array.isArray(this.checkpoints)
         ? this.checkpoints
@@ -269,10 +420,50 @@ projectSchema.virtual('checkpointProgress').get(function () {
     }
 
     const completed = checkpoints.filter(
-        (checkpoint) => checkpoint.isCompleted === true
+        (checkpoint) =>
+            checkpoint.reviewStatus === 'approved' ||
+            checkpoint.status === 'approved'
     ).length;
 
     return Math.round((completed / checkpoints.length) * 100);
+});
+
+// ======================================================
+// Virtual - Approved Checkpoints Count
+// ======================================================
+projectSchema.virtual('approvedCheckpointsCount').get(function () {
+    const checkpoints = Array.isArray(this.checkpoints)
+        ? this.checkpoints
+        : [];
+
+    return checkpoints.filter(
+        (checkpoint) =>
+            checkpoint.reviewStatus === 'approved' ||
+            checkpoint.status === 'approved'
+    ).length;
+});
+
+// ======================================================
+// Virtual - Total Checkpoints Count
+// ======================================================
+projectSchema.virtual('totalCheckpointsCount').get(function () {
+    return Array.isArray(this.checkpoints)
+        ? this.checkpoints.length
+        : 0;
+});
+
+// ======================================================
+// Virtual - Pending Review Count
+// ======================================================
+projectSchema.virtual('pendingReviewCount').get(function () {
+    const checkpoints = Array.isArray(this.checkpoints)
+        ? this.checkpoints
+        : [];
+
+    return checkpoints.filter(
+        (checkpoint) =>
+            checkpoint.reviewStatus === 'submitted'
+    ).length;
 });
 
 // ======================================================
@@ -287,6 +478,24 @@ projectSchema.virtual('isAssigned').get(function () {
 // ======================================================
 projectSchema.virtual('isFullyAssigned').get(function () {
     return Boolean(this.assignedDesigner && this.assignedPresenter);
+});
+
+// ======================================================
+// Virtual - Are All Checkpoints Approved
+// ======================================================
+projectSchema.virtual('areAllCheckpointsApproved').get(function () {
+    const checkpoints = Array.isArray(this.checkpoints)
+        ? this.checkpoints
+        : [];
+
+    return (
+        checkpoints.length > 0 &&
+        checkpoints.every(
+            (checkpoint) =>
+                checkpoint.reviewStatus === 'approved' ||
+                checkpoint.status === 'approved'
+        )
+    );
 });
 
 // ======================================================

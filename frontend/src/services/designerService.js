@@ -452,6 +452,17 @@ export async function reopenCheckpoint(
     );
 }
 
+/** Submit or resubmit a checkpoint file URL. Binary upload is handled by the configured storage layer. */
+export async function submitCheckpointFile(projectId, checkpointId, fileData = {}) {
+    const fileUrl = String(fileData.fileUrl || fileData.imageLink || '').trim();
+    if (!fileUrl) throw new Error('رابط الملف مطلوب. ارفع الملف إلى التخزين أولاً ثم أضف رابطه.');
+    return updateCheckpoint(projectId, checkpointId, {
+        fileUrl,
+        imageLink: fileUrl,
+        fileName: String(fileData.fileName || '').trim(),
+    });
+}
+
 /* =========================================================
    Render
 ========================================================= */
@@ -999,6 +1010,7 @@ const designerService = {
 
     getProjectCheckpoints,
     updateCheckpoint,
+    submitCheckpointFile,
     completeCheckpoint,
     reopenCheckpoint,
 

@@ -91,41 +91,6 @@ function buildProjectUpdate(body = {}) {
     }
 
 
-    if (Array.isArray(body.checkpoints)) {
-        data.checkpoints =
-            body.checkpoints.map(
-                (checkpoint) => ({
-                    id:
-                        checkpoint.id ||
-                        null,
-
-                    title:
-                        checkpoint.title ||
-                        '',
-
-                    isCompleted:
-                        Boolean(
-                            checkpoint.isCompleted
-                        ),
-
-                    imageLink:
-                        checkpoint.imageLink ||
-                        '',
-
-                    fileUrl:
-                        checkpoint.fileUrl ||
-                        '',
-
-                    fileName:
-                        checkpoint.fileName ||
-                        '',
-
-                    note:
-                        checkpoint.note ||
-                        '',
-                })
-            );
-    }
 
 
     return data;
@@ -565,6 +530,28 @@ router.put(
                     req.body
                 );
 
+            // Preserve server-managed review and upload history when editing checkpoint titles/notes.
+            if (Array.isArray(updateData.checkpoints)) {
+                updateData.checkpoints = updateData.checkpoints.map((incoming) => {
+                    const existing = (project.checkpoints || []).find((item) =>
+                        (incoming.id && String(item.id || '') === String(incoming.id)) ||
+                        (incoming._id && String(item._id || '') === String(incoming._id)) ||
+                        (project.checkpoints.indexOf(item) === updateData.checkpoints.indexOf(incoming))
+                    );
+                    if (!existing) return incoming;
+                    return {
+                        ...existing.toObject(),
+                        ...incoming,
+                        fileHistory: existing.fileHistory || [],
+                        reviewHistory: existing.reviewHistory || [],
+                        reviewStatus: existing.reviewStatus || 'pending',
+                        revisionNote: existing.revisionNote || '',
+                        reviewedBy: existing.reviewedBy || null,
+                        reviewedAt: existing.reviewedAt || null,
+                    };
+                });
+            }
+
             if (
                 updateData.projectName !==
                     undefined &&
@@ -687,13 +674,21 @@ router.put(
             const previousStatus =
                 project.status;
 
-            project.status = status;
-
-            if (
-                status === 'completed'
-            ) {
+            if (status === 'completed') {
+                const checkpoints = project.checkpoints || [];
+                const allApproved = checkpoints.length > 0 && checkpoints.every(
+                    (item) => item.reviewStatus === 'approved' || item.status === 'approved'
+                );
+                if (!allApproved) {
+                    return res.status(409).json({
+                        success: false,
+                        message: 'All checkpoints must be approved before completing the project.',
+                    });
+                }
                 project.isDoneAll = true;
             }
+
+            project.status = status;
 
             await project.save();
 
@@ -2106,6 +2101,150 @@ router.put(
         }
     }
 );
+
+
+
+// ======================================================
+// CHECKPOINT WORKFLOW (Coordinator only)
+// ======================================================
+
+router.post('/projects/:projectId/checkpoints', async (req, res) => {
+    try {
+        const { title, note = '', description = '' } = req.body || {};
+        if (typeof title !== 'string' || !title.trim()) {
+            return res.status(400).json({ success: false, message: 'Checkpoint title is required.' });
+        }
+        const project = req.coordinatorProject;
+        if (project.isDoneAll) {
+            return res.status(409).json({ success: false, message: 'Checkpoints are locked after Done All.' });
+        }
+
+        project.checkpoints.push({
+            title: title.trim(),
+            note: String(note || description || '').trim(),
+            status: 'pending', // legacy compatibility
+            reviewStatus: 'pending',
+            isCompleted: false,
+            fileHistory: [],
+            reviewHistory: [],
+        });
+        await project.save();
+
+        const checkpoint = project.checkpoints[project.checkpoints.length - 1];
+        const designerId = project.assignedDesigner;
+        if (designerId) {
+            await createNotification({
+                recipient: designerId,
+                sender: req.user.mongoId,
+                type: 'checkpoint-created',
+                title: 'تمت إضافة Checkpoint جديدة',
+                message: `تمت إضافة المرحلة "${checkpoint.title}" إلى مشروع "${project.projectName}".`,
+                project: project._id,
+                link: `/designer/projects/${project._id}`,
+            });
+        }
+
+        return res.status(201).json({ success: true, message: 'Checkpoint created successfully.', checkpoint, checkpoints: project.checkpoints, project });
+    } catch (error) {
+        console.error('Coordinator create checkpoint error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to create checkpoint.' });
+    }
+});
+
+router.put('/projects/:projectId/checkpoints/:checkpointId/review', async (req, res) => {
+    try {
+        const { checkpointId } = req.params;
+        const { action, revisionNote = '' } = req.body || {};
+        const project = req.coordinatorProject;
+
+        if (project.isDoneAll) {
+            return res.status(409).json({ success: false, message: 'Checkpoints are locked after Done All.' });
+        }
+
+        const checkpoint = project.checkpoints.id(checkpointId) ||
+            project.checkpoints.find((item) => String(item.id || '') === String(checkpointId));
+        if (!checkpoint) return res.status(404).json({ success: false, message: 'Checkpoint not found.' });
+
+        const hasSubmission = Boolean(checkpoint.fileUrl || checkpoint.imageLink);
+        if (!hasSubmission) {
+            return res.status(409).json({ success: false, message: 'There is no submitted file to review.' });
+        }
+
+        if (!['approve', 'request_revision'].includes(action)) {
+            return res.status(400).json({ success: false, message: 'Action must be approve or request_revision.' });
+        }
+        if (action === 'request_revision' && !String(revisionNote).trim()) {
+            return res.status(400).json({ success: false, message: 'Revision instructions are required.' });
+        }
+
+        const now = new Date();
+        const reviewEntry = {
+            action,
+            note: action === 'request_revision' ? String(revisionNote).trim() : '',
+            reviewedBy: req.user.mongoId,
+            reviewedAt: now,
+        };
+        checkpoint.reviewHistory = checkpoint.reviewHistory || [];
+        checkpoint.reviewHistory.push(reviewEntry);
+        checkpoint.reviewedBy = req.user.mongoId;
+        checkpoint.reviewedAt = now;
+
+        if (action === 'approve') {
+            checkpoint.reviewStatus = 'approved';
+            checkpoint.status = 'approved'; // legacy clients
+            checkpoint.isCompleted = true;
+            checkpoint.revisionNote = '';
+        } else {
+            checkpoint.reviewStatus = 'revision_requested';
+            checkpoint.status = 'revision_requested'; // legacy clients
+            checkpoint.isCompleted = false;
+            checkpoint.revisionNote = String(revisionNote).trim();
+        }
+
+        await project.save();
+        if (project.assignedDesigner) {
+            await createNotification({
+                recipient: project.assignedDesigner,
+                sender: req.user.mongoId,
+                type: action === 'approve' ? 'checkpoint-approved' : 'checkpoint-revision-requested',
+                title: action === 'approve' ? 'تم اعتماد Checkpoint' : 'مطلوب تعديل Checkpoint',
+                message: action === 'approve' ? `تم اعتماد المرحلة "${checkpoint.title}".` : `مطلوب تعديل المرحلة "${checkpoint.title}": ${checkpoint.revisionNote}`,
+                project: project._id,
+                link: `/designer/projects/${project._id}`,
+            });
+        }
+        return res.status(200).json({ success: true, message: action === 'approve' ? 'Checkpoint approved.' : 'Revision requested.', checkpoint, checkpoints: project.checkpoints, project });
+    } catch (error) {
+        console.error('Coordinator checkpoint review error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to review checkpoint.' });
+    }
+});
+
+router.put('/projects/:projectId/done-all', async (req, res) => {
+    try {
+        const project = req.coordinatorProject;
+        const checkpoints = project.checkpoints || [];
+        if (checkpoints.length === 0) return res.status(400).json({ success: false, message: 'Add at least one checkpoint before Done All.' });
+
+        const allApproved = checkpoints.every((item) => item.reviewStatus === 'approved' || item.status === 'approved');
+        if (!allApproved) {
+            return res.status(409).json({
+                success: false,
+                message: 'All checkpoints must be approved before starting rendering.',
+                pendingCheckpoints: checkpoints.filter((item) => !(item.reviewStatus === 'approved' || item.status === 'approved')).map((item) => ({ id: item._id, title: item.title, reviewStatus: item.reviewStatus || item.status || 'pending' })),
+            });
+        }
+        project.isDoneAll = true;
+        await project.save();
+        if (project.assignedDesigner) {
+            await createNotification({ recipient: project.assignedDesigner, sender: req.user.mongoId, type: 'rendering-unlocked', title: 'بدأت مرحلة الـ Rendering', message: `تم اعتماد جميع Checkpoints في مشروع "${project.projectName}". يمكنك الآن رفع ملف Render.`, project: project._id, link: `/designer/projects/${project._id}` });
+        }
+        return res.status(200).json({ success: true, message: 'All checkpoints approved. Rendering stage is now unlocked.', isDoneAll: true, project });
+    } catch (error) {
+        console.error('Coordinator done all error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to complete checkpoints.' });
+    }
+});
 
 
 module.exports = router;

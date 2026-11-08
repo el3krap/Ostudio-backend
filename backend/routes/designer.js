@@ -510,6 +510,13 @@ router.put(
                 });
             }
 
+            if (project.isDoneAll || (checkpoint.reviewStatus === 'approved' || checkpoint.status === 'approved' || checkpoint.isCompleted)) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'This checkpoint is approved and locked. Ask the Coordinator to reopen it before uploading again.',
+                });
+            }
+
             const allowedFileFields = [
                 'fileUrl',
                 'imageLink',
@@ -528,12 +535,74 @@ router.put(
                 });
             }
 
+            // Snapshot the current version before applying the incoming upload.
+            const previousCurrent = {
+                fileUrl: checkpoint.fileUrl || '',
+                imageLink: checkpoint.imageLink || '',
+                fileName: checkpoint.fileName || '',
+                uploadedBy: checkpoint.uploadedBy || null,
+                uploadedAt: checkpoint.uploadedAt || null,
+            };
+
+            // Apply incoming file metadata before validating the submission.
             for (const field of providedFields) {
                 checkpoint[field] =
                     typeof req.body[field] === 'string'
                         ? req.body[field].trim()
                         : '';
             }
+
+            if (!checkpoint.imageLink && !checkpoint.fileUrl) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A checkpoint image or file URL is required.',
+                });
+            }
+
+            const now = new Date();
+            checkpoint.fileHistory = checkpoint.fileHistory || [];
+
+            // Preserve a legacy current file if it has never been recorded.
+            const previousUrl = previousCurrent.fileUrl || previousCurrent.imageLink || '';
+            const previousName = previousCurrent.fileName || '';
+            const lastHistoryEntry = checkpoint.fileHistory[
+                checkpoint.fileHistory.length - 1
+            ];
+
+            const previousAlreadyRecorded = Boolean(
+                lastHistoryEntry &&
+                (lastHistoryEntry.fileUrl || lastHistoryEntry.imageLink) === previousUrl &&
+                String(lastHistoryEntry.fileName || '') === previousName
+            );
+
+            if (previousUrl && !previousAlreadyRecorded) {
+                checkpoint.fileHistory.push({
+                    fileUrl: previousCurrent.fileUrl,
+                    imageLink: previousCurrent.imageLink,
+                    fileName: previousCurrent.fileName,
+                    uploadedBy: previousCurrent.uploadedBy,
+                    uploadedAt: previousCurrent.uploadedAt,
+                });
+            }
+
+            // Record every successful upload, including the first upload.
+            checkpoint.uploadedBy = req.user.mongoId;
+            checkpoint.uploadedAt = now;
+            checkpoint.fileHistory.push({
+                fileUrl: checkpoint.fileUrl || '',
+                imageLink: checkpoint.imageLink || '',
+                fileName: checkpoint.fileName || '',
+                uploadedBy: req.user.mongoId,
+                uploadedAt: now,
+            });
+
+            // A new upload becomes a fresh submission and requires a new review.
+            checkpoint.status = 'submitted';
+            checkpoint.reviewStatus = 'submitted';
+            checkpoint.isCompleted = false;
+            checkpoint.revisionNote = '';
+            checkpoint.reviewedAt = null;
+            checkpoint.reviewedBy = null;
 
             await project.save();
 
@@ -620,6 +689,13 @@ router.get(
                 });
             }
 
+            if (!project.isDoneAll) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Rendering is locked until the Coordinator approves all checkpoints.',
+                });
+            }
+
             return res.status(200).json({
                 success: true,
                 project,
@@ -661,6 +737,13 @@ router.put(
                 return res.status(403).json({
                     success: false,
                     message: 'Only the main project designer can upload render files.',
+                });
+            }
+
+            if (!project.isDoneAll) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Rendering is locked until the Coordinator approves all checkpoints.',
                 });
             }
 
@@ -904,6 +987,18 @@ router.put(
             // checkpoint array from a Designer: that could let
             // the Designer approve, remove, or rewrite checkpoints.
 
+
+            if (
+                isMainDesigner &&
+                (req.body.renderFileLink !== undefined ||
+                 req.body.renderFileName !== undefined) &&
+                !project.isDoneAll
+            ) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Rendering is locked until the Coordinator approves all checkpoints.',
+                });
+            }
 
             if (
                 isMainDesigner &&

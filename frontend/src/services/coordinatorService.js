@@ -1211,6 +1211,33 @@ async function getCoordinatorSummary() {
 }
 
 /* =========================================================
+   Checkpoint Review Workflow
+========================================================= */
+
+async function createCheckpoint(projectId, checkpointData = {}) {
+    if (!projectId) throw new Error('معرف المشروع مطلوب.');
+    if (!checkpointData.title?.trim()) throw new Error('عنوان المرحلة مطلوب.');
+    return coordinatorRequest(`/coordinator/projects/${encodeURIComponent(projectId)}/checkpoints`, {
+        method: 'POST',
+        body: JSON.stringify({ title: checkpointData.title.trim(), description: checkpointData.description || '' })
+    });
+}
+
+async function reviewCheckpoint(projectId, checkpointId, action, revisionNote = '') {
+    if (!projectId || !checkpointId) throw new Error('بيانات المرحلة غير مكتملة.');
+    if (!['approve', 'request_revision'].includes(action)) throw new Error('إجراء المراجعة غير صحيح.');
+    if (action === 'request_revision' && !revisionNote.trim()) throw new Error('اكتب ملاحظات التعديل أولاً.');
+    return coordinatorRequest(`/coordinator/projects/${encodeURIComponent(projectId)}/checkpoints/${encodeURIComponent(checkpointId)}/review`, {
+        method: 'PUT', body: JSON.stringify({ action, revisionNote })
+    });
+}
+
+async function markCheckpointsDoneAll(projectId) {
+    if (!projectId) throw new Error('معرف المشروع مطلوب.');
+    return coordinatorRequest(`/coordinator/projects/${encodeURIComponent(projectId)}/done-all`, { method: 'PUT' });
+}
+
+/* =========================================================
    Generic Success Message
 ========================================================= */
 
@@ -1273,6 +1300,9 @@ export {
     updateRender,
 
     addCheckpoint,
+    createCheckpoint,
+    reviewCheckpoint,
+    markCheckpointsDoneAll,
     updateCheckpoint,
     completeCheckpoint,
     deleteCheckpoint,
@@ -1325,6 +1355,9 @@ export default {
     updateRender,
 
     addCheckpoint,
+    createCheckpoint,
+    reviewCheckpoint,
+    markCheckpointsDoneAll,
     updateCheckpoint,
     completeCheckpoint,
     deleteCheckpoint,
