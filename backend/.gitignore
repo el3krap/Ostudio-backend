@@ -4,14 +4,15 @@
 # ==========================================
 
 # Dependencies
+node_modules/
 **/node_modules/
 
-# Environment variables / Secrets
+# Environment Variables / Secrets
 .env
 .env.*
 !.env.example
 
-# Firebase / Google service accounts
+# Firebase / Google Service Accounts
 *-firebase-adminsdk-*.json
 firebase-service-account.json
 serviceAccountKey.json
@@ -24,20 +25,23 @@ yarn-error.log*
 pnpm-debug.log*
 logs/
 
-# Build output
+# Build Output
+dist/
 **/dist/
+build/
 **/build/
 
-# Runtime / Temporary files
+# Runtime / Temporary Files
 tmp/
 temp/
 
-# Coverage
+# Test Coverage
 coverage/
 
-# OS files
+# OS Files
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # IDE / Editor
 .vscode/*
@@ -45,12 +49,20 @@ Thumbs.db
 !.vscode/settings.json
 .idea/
 
-# Local databases
+# Local Databases
 *.sqlite
 *.sqlite3
+*.db
 
-# Docker local files
+# Docker Local Files
 docker-compose.override.yml
 
-# Project backup
+# Project Backups
 /backend_backup/
+
+# Optional Local Configuration
+*.local
+
+# ==========================================
+# END OF OSTUDIO GITIGNORE
+# ==========================================
