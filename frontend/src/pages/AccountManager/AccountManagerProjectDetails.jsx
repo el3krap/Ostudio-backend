@@ -849,6 +849,21 @@ const AccountManagerProjectDetails = () => {
 
                                 </div>
 
+                                {project.briefFileUrl && (
+                                    <div className="info-item full brief-attachment-item">
+                                        <span>ملف الـ Brief المرفق</span>
+                                        <a
+                                            href={project.briefFileUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="brief-attachment-link"
+                                        >
+                                            📎 {project.briefFileName || 'فتح ملف الـ Brief'}
+                                            <span>فتح / تحميل الملف ↗</span>
+                                        </a>
+                                    </div>
+                                )}
+
                                 <div className="info-item full">
 
                                     <span>
@@ -2031,6 +2046,29 @@ const AccountManagerProjectDetails = () => {
                     .save-button {
                         width: 100%;
                     }
+                }
+
+
+                .brief-attachment-link {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                    flex-wrap: wrap;
+                    padding: 12px 14px;
+                    border: 1px solid #dbeafe;
+                    border-radius: 10px;
+                    background: #f8fbff;
+                    color: #1d4ed8;
+                    text-decoration: none;
+                    overflow-wrap: anywhere;
+                    font-size: 12px;
+                    font-weight: 800;
+                }
+
+                .brief-attachment-link span {
+                    color: #475569;
+                    font-size: 11px;
                 }
 
             `}</style>

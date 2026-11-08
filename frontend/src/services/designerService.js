@@ -1,6 +1,7 @@
 // frontend/src/services/designerService.js
 
 import { auth } from '../firebase';
+import { getCurrentIdToken } from './authService';
 
 /* =========================================================
    Configuration
@@ -15,16 +16,8 @@ const API_BASE_URL =
 ========================================================= */
 
 async function getAuthToken() {
-    const currentUser =
-        auth.currentUser;
-
-    if (!currentUser) {
-        throw new Error(
-            'يجب تسجيل الدخول أولًا.'
-        );
-    }
-
-    return currentUser.getIdToken();
+    // Use the same Firebase-auth readiness logic as the login service.
+    return getCurrentIdToken();
 }
 
 /* =========================================================

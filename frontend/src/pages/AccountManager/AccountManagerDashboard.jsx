@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { uploadBriefFile, deleteUploadedBriefFile } from '../../services/accountManagerService';
 
 import Navbar from '../../components/shared/Navbar';
 import NotificationBell from '../../components/shared/NotificationBell';
@@ -41,6 +42,9 @@ const AccountManagerDashboard = () => {
         managerNotes: '',
         assignedCoordinator: ''
     });
+
+    const [briefFile, setBriefFile] = useState(null);
+    const [uploadProgress, setUploadProgress] = useState(0);
 
     /* =========================================================
        Load Current User
@@ -170,6 +174,8 @@ const AccountManagerDashboard = () => {
             managerNotes: '',
             assignedCoordinator: ''
         });
+        setBriefFile(null);
+        setUploadProgress(0);
     };
 
     /* =========================================================
@@ -193,16 +199,40 @@ const AccountManagerDashboard = () => {
             setCreatingProject(true);
             setError('');
 
-            await createProject({
-                projectName: formData.projectName.trim(),
-                assignedCoordinator: formData.assignedCoordinator,
-                brief: formData.brief.trim(),
-                description: formData.description.trim(),
-                startDate: formData.startDate || null,
-                deadline: formData.deadline || null,
-                managerNotes:
-                    formData.managerNotes.trim()
-            });
+            let uploadedBrief = null;
+
+            if (briefFile) {
+                uploadedBrief = await uploadBriefFile(
+                    briefFile,
+                    setUploadProgress
+                );
+            }
+
+            try {
+                await createProject({
+                    projectName: formData.projectName.trim(),
+                    assignedCoordinator: formData.assignedCoordinator,
+                    brief: formData.brief.trim(),
+                    briefName: uploadedBrief?.fileName || '',
+                    briefFileUrl: uploadedBrief?.url || '',
+                    briefFileName: uploadedBrief?.fileName || '',
+                    briefFileMimeType: uploadedBrief?.mimeType || '',
+                    briefFileSize: uploadedBrief?.size || 0,
+                    briefStoragePath: uploadedBrief?.storagePath || '',
+                    description: formData.description.trim(),
+                    startDate: formData.startDate || null,
+                    deadline: formData.deadline || null,
+                    managerNotes: formData.managerNotes.trim()
+                });
+            } catch (createError) {
+                if (uploadedBrief?.storagePath) {
+                    await deleteUploadedBriefFile(uploadedBrief.storagePath)
+                        .catch((cleanupError) => {
+                            console.warn('Brief cleanup failed:', cleanupError);
+                        });
+                }
+                throw createError;
+            }
 
             resetForm();
             setShowCreateModal(false);
@@ -682,24 +712,87 @@ const AccountManagerDashboard = () => {
 
                             </div>
 
-                            <div className="form-group">
+                            <div className="form-group brief-form-group">
 
-                                <label>
-                                    اسم الـ Brief
+                                <div className="brief-upload-heading">
+                                    <label htmlFor="briefFile">
+                                        ملف الـ Brief
+                                    </label>
+
+                                    <label
+                                        htmlFor="briefFile"
+                                        className={`brief-upload-button ${creatingProject ? 'disabled' : ''}`}
+                                    >
+                                        <span>＋</span>
+                                        رفع ملف من الجهاز
+                                    </label>
+                                </div>
+
+                                <input
+                                    id="briefFile"
+                                    type="file"
+                                    accept="*/*"
+                                    className="brief-file-input"
+                                    disabled={creatingProject}
+                                    onChange={(event) => {
+                                        const selectedFile = event.target.files?.[0] || null;
+                                        setBriefFile(selectedFile);
+                                        setUploadProgress(0);
+                                    }}
+                                />
+
+                                {briefFile ? (
+                                    <div className="brief-selected-file">
+                                        <span className="brief-file-icon">📎</span>
+                                        <div className="brief-file-info">
+                                            <strong>{briefFile.name}</strong>
+                                            <small>
+                                                {(briefFile.size / (1024 * 1024)).toFixed(2)} MB
+                                                {' · '}
+                                                {briefFile.type || 'نوع ملف غير محدد'}
+                                            </small>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="brief-remove-button"
+                                            onClick={() => {
+                                                setBriefFile(null);
+                                                setUploadProgress(0);
+                                                const input = document.getElementById('briefFile');
+                                                if (input) input.value = '';
+                                            }}
+                                            disabled={creatingProject}
+                                            aria-label="إزالة ملف Brief"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <small className="brief-upload-hint">
+                                        يمكنك رفع PDF أو Word أو PowerPoint أو Excel أو صور أو أي نوع ملف آخر.
+                                    </small>
+                                )}
+
+                                {creatingProject && briefFile && (
+                                    <div className="brief-upload-progress">
+                                        <div>
+                                            <span>جاري رفع ملف الـ Brief</span>
+                                            <strong>{uploadProgress}%</strong>
+                                        </div>
+                                        <progress value={uploadProgress} max="100" />
+                                    </div>
+                                )}
+
+                                <label className="brief-name-label">
+                                    اسم / وصف الـ Brief (اختياري)
                                 </label>
-
                                 <input
                                     type="text"
                                     name="brief"
-                                    value={
-                                        formData.brief
-                                    }
-                                    onChange={
-                                        handleInputChange
-                                    }
-                                    placeholder="Brief"
+                                    value={formData.brief}
+                                    onChange={handleInputChange}
+                                    placeholder="اكتب وصفًا مختصرًا للـ Brief"
                                 />
-
                             </div>
 
                             <div className="form-group">
@@ -1313,6 +1406,122 @@ const AccountManagerDashboard = () => {
                 .form-group textarea {
                     resize: vertical;
                     line-height: 1.6;
+                }
+
+
+                .brief-upload-heading {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 14px;
+                    margin-bottom: 10px;
+                }
+
+                .brief-upload-heading > label:first-child {
+                    margin: 0;
+                }
+
+                .brief-upload-button {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 7px;
+                    min-height: 38px;
+                    padding: 0 13px;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 9px;
+                    background: #f8fafc;
+                    color: #1e293b;
+                    font-size: 12px;
+                    font-weight: 800;
+                    cursor: pointer;
+                    white-space: nowrap;
+                }
+
+                .brief-upload-button:hover {
+                    background: #eef2ff;
+                    border-color: #a5b4fc;
+                }
+
+                .brief-upload-button.disabled {
+                    opacity: .55;
+                    cursor: not-allowed;
+                }
+
+                .brief-file-input {
+                    display: none;
+                }
+
+                .brief-selected-file {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-top: 10px;
+                    padding: 11px 12px;
+                    border: 1px solid #dbeafe;
+                    border-radius: 10px;
+                    background: #f8fbff;
+                }
+
+                .brief-file-icon {
+                    font-size: 20px;
+                }
+
+                .brief-file-info {
+                    min-width: 0;
+                    flex: 1;
+                }
+
+                .brief-file-info strong,
+                .brief-file-info small {
+                    display: block;
+                    overflow-wrap: anywhere;
+                }
+
+                .brief-file-info strong {
+                    color: #1e293b;
+                    font-size: 12px;
+                }
+
+                .brief-file-info small,
+                .brief-upload-hint {
+                    color: #64748b;
+                    font-size: 10px;
+                    line-height: 1.7;
+                }
+
+                .brief-remove-button {
+                    width: 28px;
+                    height: 28px;
+                    border: 0;
+                    border-radius: 7px;
+                    background: #fee2e2;
+                    color: #991b1b;
+                    font-size: 19px;
+                    cursor: pointer;
+                }
+
+                .brief-name-label {
+                    display: block;
+                    margin-top: 13px;
+                }
+
+                .brief-upload-progress {
+                    margin-top: 10px;
+                }
+
+                .brief-upload-progress > div {
+                    display: flex;
+                    justify-content: space-between;
+                    color: #475569;
+                    font-size: 11px;
+                    margin-bottom: 5px;
+                }
+
+                .brief-upload-progress progress {
+                    width: 100%;
+                    height: 7px;
+                    accent-color: #2563eb;
                 }
 
                 .date-grid {

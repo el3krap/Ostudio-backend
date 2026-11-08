@@ -82,6 +82,42 @@ function buildProjectData(body = {}) {
             String(body.briefName);
     }
 
+    // --------------------------------------------------
+    // Brief File Metadata (uploaded to Firebase Storage)
+    // The binary file is uploaded by the Frontend. This API
+    // stores only its URL and metadata on the Project.
+    // --------------------------------------------------
+
+    if (body.briefFileUrl !== undefined) {
+        data.briefFileUrl =
+            String(body.briefFileUrl || '').trim();
+    }
+
+    if (body.briefFileName !== undefined) {
+        data.briefFileName =
+            String(body.briefFileName || '').trim();
+    }
+
+    if (body.briefFileMimeType !== undefined) {
+        data.briefFileMimeType =
+            String(body.briefFileMimeType || '').trim();
+    }
+
+    if (body.briefFileSize !== undefined) {
+        const size = Number(body.briefFileSize);
+
+        if (!Number.isFinite(size) || size < 0) {
+            throw new Error('Invalid brief file size.');
+        }
+
+        data.briefFileSize = size;
+    }
+
+    if (body.briefStoragePath !== undefined) {
+        data.briefStoragePath =
+            String(body.briefStoragePath || '').trim();
+    }
+
     if (body.description !== undefined) {
         data.description =
             String(body.description);

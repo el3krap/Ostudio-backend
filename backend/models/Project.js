@@ -1,4 +1,4 @@
-   
+
 const mongoose = require('mongoose');
 
 // ======================================================
@@ -130,20 +130,6 @@ const checkpointSchema = new mongoose.Schema(
         // Review Workflow
         // --------------------------------------------------
 
-        // Canonical workflow status, synchronized with reviewStatus
-        // for compatibility with existing frontend / legacy routes.
-        status: {
-            type: String,
-            enum: [
-                'pending',
-                'submitted',
-                'approved',
-                'revision_requested',
-            ],
-            default: 'pending',
-            index: true,
-        },
-
         reviewStatus: {
             type: String,
             enum: [
@@ -154,17 +140,6 @@ const checkpointSchema = new mongoose.Schema(
             ],
             default: 'pending',
             index: true,
-        },
-
-        uploadedBy: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-            default: null,
-        },
-
-        uploadedAt: {
-            type: Date,
-            default: null,
         },
 
         revisionNote: {
@@ -227,6 +202,37 @@ const projectSchema = new mongoose.Schema(
 
         // Legacy field
         briefName: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        // Uploaded project brief (stored in Firebase Storage).
+        briefFileUrl: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        briefFileName: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        briefFileMimeType: {
+            type: String,
+            default: '',
+            trim: true,
+        },
+
+        briefFileSize: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+
+        briefStoragePath: {
             type: String,
             default: '',
             trim: true,
@@ -422,7 +428,7 @@ projectSchema.virtual('checkpointProgress').get(function () {
     const completed = checkpoints.filter(
         (checkpoint) =>
             checkpoint.reviewStatus === 'approved' ||
-            checkpoint.status === 'approved'
+            checkpoint.isCompleted === true
     ).length;
 
     return Math.round((completed / checkpoints.length) * 100);
@@ -439,7 +445,7 @@ projectSchema.virtual('approvedCheckpointsCount').get(function () {
     return checkpoints.filter(
         (checkpoint) =>
             checkpoint.reviewStatus === 'approved' ||
-            checkpoint.status === 'approved'
+            checkpoint.isCompleted === true
     ).length;
 });
 
@@ -493,7 +499,7 @@ projectSchema.virtual('areAllCheckpointsApproved').get(function () {
         checkpoints.every(
             (checkpoint) =>
                 checkpoint.reviewStatus === 'approved' ||
-                checkpoint.status === 'approved'
+                checkpoint.isCompleted === true
         )
     );
 });

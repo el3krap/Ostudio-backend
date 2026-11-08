@@ -43,11 +43,35 @@ const ACTIVE_STATUSES = ['active', 'approved'];
 // Firebase ID Token
 // ======================================================
 
+/**
+ * Wait until Firebase has restored the persisted authentication state.
+ * onAuthStateChanged fires after the initial auth state has been resolved,
+ * including when the result is that no user is signed in.
+ */
+function waitForFirebaseAuthState() {
+    return new Promise((resolve, reject) => {
+        let unsubscribe = () => {};
+
+        unsubscribe = onAuthStateChanged(
+            auth,
+            (firebaseUser) => {
+                unsubscribe();
+                resolve(firebaseUser);
+            },
+            (error) => {
+                unsubscribe();
+                reject(error);
+            }
+        );
+    });
+}
+
 async function getFirebaseIdToken(forceRefresh = false) {
-    const firebaseUser = auth.currentUser;
+    // Do not read auth.currentUser before Firebase finishes restoring the session.
+    const firebaseUser = await waitForFirebaseAuthState();
 
     if (!firebaseUser) {
-        throw new Error('لا يوجد مستخدم مسجل الدخول.');
+        throw new Error('لا يوجد مستخدم مسجل الدخول. سجّل الدخول مرة أخرى.');
     }
 
     return firebaseUser.getIdToken(forceRefresh);
