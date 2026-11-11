@@ -673,6 +673,9 @@ managerNotes:
                 title="OSTUDIO"
             />
 
+            <div className="dashboard-navbar-notification">
+                <NotificationBell user={user} />
+            </div>
 
             <main className="dashboard-container">
 
@@ -683,10 +686,6 @@ managerNotes:
                 <section className="page-header">
 
                     <div>
-
-                        <div className="page-kicker">
-                            MANAGEMENT WORKSPACE
-                        </div>
 
                         <h1>
                             لوحة تحكم الـ Manager
@@ -701,8 +700,7 @@ managerNotes:
                                     'Manager'
                                 }
                             </strong>
-                            ، من هنا تقدر تتحكم في
-                            المشاريع والمهام بالكامل.
+                            ، من هنا تقدر تدير وتتابع جميع المشاريع بسهولة.
                         </p>
 
                     </div>
@@ -733,10 +731,6 @@ managerNotes:
                         >
                             + مشروع جديد
                         </button>
-
-                        <NotificationBell
-                            user={user}
-                        />
 
                     </div>
 
@@ -960,34 +954,6 @@ managerNotes:
 
                             <small>
                                 عرض وإدارة جميع المشاريع
-                            </small>
-                        </div>
-
-                        <b>
-                            ←
-                        </b>
-                    </button>
-
-
-                    <button
-                        type="button"
-                        onClick={() =>
-                            navigate(
-                                '/manager/tasks'
-                            )
-                        }
-                    >
-                        <span>
-                            📋
-                        </span>
-
-                        <div>
-                            <strong>
-                                إدارة المهام
-                            </strong>
-
-                            <small>
-                                إنشاء ومتابعة وتعيين المهام
                             </small>
                         </div>
 
@@ -1314,33 +1280,6 @@ managerNotes:
                 </section>
 
 
-                {/* =================================================
-                    Manager Permission
-                ================================================= */}
-
-                <section className="permission-notice">
-
-                    <div className="notice-icon">
-                        👑
-                    </div>
-
-                    <div>
-
-                        <h3>
-                            صلاحيات Manager
-                        </h3>
-
-                        <p>
-                            لديك صلاحية إدارة جميع المشاريع
-                            والمهام، بالإضافة إلى تعيين
-                            Designers للمشروع وللعرض
-                            التقديمي بشكل مستقل.
-                        </p>
-
-                    </div>
-
-                </section>
-
             </main>
 
 
@@ -1369,24 +1308,6 @@ managerNotes:
 
                         <div className="modal-header">
 
-                            <div>
-
-                                <div className="modal-kicker">
-                                    NEW PROJECT
-                                </div>
-
-                                <h2>
-                                    إنشاء مشروع جديد
-                                </h2>
-
-                                <p>
-                                    سيتم حفظ المشروع باسم
-                                    الـ Manager الحالي.
-                                </p>
-
-                            </div>
-
-
                             <button
                                 type="button"
                                 disabled={
@@ -1413,7 +1334,7 @@ managerNotes:
                             <div className="form-group">
 
                                 <label>
-                                    اسم المشروع *
+                                    <strong>اسم المشروع</strong>
                                 </label>
 
                                 <input
@@ -1439,7 +1360,9 @@ managerNotes:
 
 
                             <div className="form-group">
-                                <label>ملف الـ Brief (PDF، صور، فيديوهات أو أي نوع ملف)</label>
+                                <label>
+                                    <strong>Brief</strong>
+                                </label>
                                 <input
                                     type="file"
                                     onChange={(event) => updateForm('briefFile', event.target.files?.[0] || null)}
@@ -1459,7 +1382,7 @@ managerNotes:
                             <div className="form-group">
 
                                 <label>
-                                    ملاحظات الـ Manager
+                                    <strong>ملاحظات</strong>
                                 </label>
 
                                 <textarea
@@ -1486,7 +1409,7 @@ managerNotes:
                             <div className="form-group">
 
                                 <label>
-                                    الـ Coordinator المسؤول *
+                                    <strong>Coordinator</strong>
                                 </label>
 
                                 <select
@@ -1498,9 +1421,7 @@ managerNotes:
                                     disabled={creating || coordinators.length === 0}
                                 >
                                     <option value="">
-                                        {coordinators.length === 0
-                                            ? 'لا توجد حسابات Coordinator نشطة'
-                                            : 'اختر الـ Coordinator المسؤول'}
+'Choose Coordinator'
                                     </option>
                                     {coordinators.map((coordinator) => (
                                         <option
@@ -1513,14 +1434,23 @@ managerNotes:
                                     ))}
                                 </select>
 
-                                <small>
-                                    يتم عرض الحسابات النشطة أو المعتمدة فقط.
-                                </small>
-
                             </div>
 
 
                             <div className="modal-actions">
+
+                                <button
+                                    type="submit"
+                                    className="save-button"
+                                    disabled={
+                                        creating
+                                    }
+                                >
+                                    {creating
+                                        ? 'جاري الإنشاء...'
+                                        : 'إنشاء المشروع'}
+                                </button>
+
 
                                 <button
                                     type="button"
@@ -1535,19 +1465,6 @@ managerNotes:
                                     }
                                 >
                                     إلغاء
-                                </button>
-
-
-                                <button
-                                    type="submit"
-                                    className="save-button"
-                                    disabled={
-                                        creating
-                                    }
-                                >
-                                    {creating
-                                        ? 'جاري الإنشاء...'
-                                        : 'إنشاء المشروع'}
                                 </button>
 
                             </div>
@@ -1589,9 +1506,9 @@ managerNotes:
 
                 .page-header {
                     display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    gap: 25px;
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: 18px;
                     margin-bottom: 25px;
                 }
 
@@ -1620,8 +1537,25 @@ managerNotes:
                 .header-actions {
                     display: flex;
                     align-items: center;
+                    justify-content: flex-start;
+                    align-self: flex-start;
                     gap: 9px;
                     direction: ltr;
+                }
+
+                /* Notification bell positioned in the top Navbar beside OSTUDIO */
+                .dashboard-navbar-notification {
+                    position: fixed;
+                    top: 12px;
+                    right: 168px;
+                    z-index: 1002;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+
+                .dashboard-navbar-notification > * {
+                    margin: 0;
                 }
 
                 .refresh-button,
@@ -1762,7 +1696,7 @@ managerNotes:
                     display: grid;
                     grid-template-columns:
                         repeat(
-                            3,
+                            2,
                             minmax(0, 1fr)
                         );
                     gap: 13px;
@@ -2160,48 +2094,6 @@ managerNotes:
 
 
                 /* =========================================
-                   Permission
-                ========================================= */
-
-                .permission-notice {
-                    display: flex;
-                    align-items: flex-start;
-                    gap: 13px;
-                    background: #ffffff;
-                    border: 1px solid #e8edf4;
-                    border-radius: 15px;
-                    padding: 17px;
-                    margin-top: 20px;
-                }
-
-                .notice-icon {
-                    width: 40px;
-                    height: 40px;
-                    flex-shrink: 0;
-                    border-radius: 11px;
-                    background: #f1f5f9;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 18px;
-                }
-
-                .permission-notice h3 {
-                    margin: 0 0 4px;
-                    color: #334155;
-                    font-size: 13px;
-                    font-weight: 900;
-                }
-
-                .permission-notice p {
-                    margin: 0;
-                    color: #64748b;
-                    font-size: 11px;
-                    line-height: 1.8;
-                }
-
-
-                /* =========================================
                    Modal
                 ========================================= */
 
@@ -2296,6 +2188,10 @@ managerNotes:
                     font-weight: 900;
                 }
 
+                .form-group label strong {
+                    font-weight: 900;
+                }
+
                 .form-group input,
                 .form-group textarea {
                     width: 100%;
@@ -2339,7 +2235,10 @@ managerNotes:
 
                 .modal-actions {
                     display: flex;
-                    justify-content: flex-start;
+                    flex-direction: row;
+                    direction: rtl;
+                    justify-content: space-between;
+                    align-items: center;
                     gap: 8px;
                     margin-top: 20px;
                 }
@@ -2414,7 +2313,12 @@ managerNotes:
 
                     .header-actions {
                         width: 100%;
+                        justify-content: flex-start;
                         flex-wrap: wrap;
+                    }
+
+                    .dashboard-navbar-notification {
+                        right: 118px;
                     }
 
                     .quick-actions {
@@ -2434,6 +2338,11 @@ managerNotes:
                 @media (
                     max-width: 600px
                 ) {
+                    .dashboard-navbar-notification {
+                        right: 108px;
+                        top: 14px;
+                    }
+
                     .page-header h1 {
                         font-size: 27px;
                     }
