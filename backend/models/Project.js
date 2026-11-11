@@ -406,10 +406,6 @@ projectSchema.index({
     createdAt: -1,
 });
 
-projectSchema.index({ assignedCoordinator: 1 });
-projectSchema.index({ assignedDesigner: 1 });
-projectSchema.index({ assignedPresenter: 1 });
-projectSchema.index({ status: 1 });
 projectSchema.index({ deadline: 1 });
 
 // ======================================================
