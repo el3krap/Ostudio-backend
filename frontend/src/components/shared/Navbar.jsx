@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import NotificationBell from './NotificationBell';
 
 const Navbar = ({
     user = null,
@@ -29,19 +30,14 @@ const Navbar = ({
         switch (role) {
             case 'admin':
                 return 'Admin';
-
             case 'manager':
                 return 'Manager';
-
             case 'account_manager':
                 return 'Account Manager';
-
             case 'coordinator':
                 return 'Coordinator';
-
             case 'designer':
                 return 'Designer';
-
             default:
                 return 'User';
         }
@@ -57,23 +53,18 @@ const Navbar = ({
             case 'admin':
                 navigate('/admin/dashboard');
                 break;
-
             case 'manager':
                 navigate('/manager/dashboard');
                 break;
-
             case 'account_manager':
                 navigate('/account-manager/dashboard');
                 break;
-
             case 'coordinator':
                 navigate('/coordinator/dashboard');
                 break;
-
             case 'designer':
                 navigate('/designer/dashboard');
                 break;
-
             default:
                 navigate('/login');
         }
@@ -91,6 +82,12 @@ const Navbar = ({
                     >
                         {title}
                     </button>
+
+                    {user && (
+                        <div className="ostudio-navbar-notifications">
+                            <NotificationBell user={user} />
+                        </div>
+                    )}
                 </div>
 
                 <div className="ostudio-navbar-right">
@@ -100,7 +97,6 @@ const Navbar = ({
                                 <span className="ostudio-user-name">
                                     {user.name || 'User'}
                                 </span>
-
                                 <span className="ostudio-user-role">
                                     {getRoleName(user.role)}
                                 </span>
@@ -131,41 +127,45 @@ const Navbar = ({
                     min-height: 70px;
                     padding: 0 32px;
                     box-sizing: border-box;
-
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-
                     background: #ffffff;
                     border-bottom: 1px solid #e5e7eb;
-
                     position: sticky;
                     top: 0;
                     z-index: 1000;
-
                     direction: rtl;
                 }
 
                 .ostudio-navbar-left {
                     display: flex;
                     align-items: center;
+                    gap: 14px;
+                    min-width: 0;
                 }
 
                 .ostudio-logo-button {
                     border: none;
                     background: transparent;
                     padding: 0;
-
                     font-size: 24px;
                     font-weight: 800;
                     letter-spacing: 1px;
-
                     color: #111827;
                     cursor: pointer;
+                    white-space: nowrap;
                 }
 
                 .ostudio-logo-button:hover {
                     opacity: 0.75;
+                }
+
+                .ostudio-navbar-notifications {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
                 }
 
                 .ostudio-navbar-right {
@@ -203,17 +203,13 @@ const Navbar = ({
                     width: 40px;
                     height: 40px;
                     border-radius: 50%;
-
                     display: flex;
                     align-items: center;
                     justify-content: center;
-
                     background: #111827;
                     color: #ffffff;
-
                     font-size: 15px;
                     font-weight: 700;
-
                     flex-shrink: 0;
                 }
 
@@ -221,13 +217,10 @@ const Navbar = ({
                     border: 1px solid #e5e7eb;
                     background: #ffffff;
                     color: #111827;
-
                     padding: 9px 16px;
                     border-radius: 8px;
-
                     font-size: 13px;
                     font-weight: 600;
-
                     cursor: pointer;
                     transition:
                         background 0.2s ease,
@@ -249,6 +242,10 @@ const Navbar = ({
 
                     .ostudio-logo-button {
                         font-size: 20px;
+                    }
+
+                    .ostudio-navbar-left {
+                        gap: 9px;
                     }
 
                     .ostudio-user-text {

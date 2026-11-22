@@ -685,25 +685,6 @@ managerNotes:
 
                 <section className="page-header">
 
-                    <div>
-
-                        <h1>
-                            لوحة تحكم الـ Manager
-                        </h1>
-
-                        <p>
-                            مرحبًا{' '}
-                            <strong>
-                                {
-                                    user?.name ||
-                                    user?.email ||
-                                    'Manager'
-                                }
-                            </strong>
-                            ، من هنا تقدر تدير وتتابع جميع المشاريع بسهولة.
-                        </p>
-
-                    </div>
 
 
                     <div className="header-actions">

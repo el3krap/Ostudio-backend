@@ -7,9 +7,7 @@ import React, {
     useState
 } from 'react';
 
-import {
-    useNavigate
-} from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 import Navbar from '../../components/shared/Navbar';
 import NotificationBell from '../../components/shared/NotificationBell';
@@ -33,6 +31,10 @@ import {
 
 function getId(item) {
     if (!item) return '';
+
+    if (typeof item === 'string') {
+        return item;
+    }
 
     return (
         item._id ||
@@ -60,15 +62,11 @@ function getTaskDescription(task) {
 }
 
 function getStatusLabel(status) {
-    switch (status) {
+    switch (normalizeStatus(status)) {
         case 'completed':
-        case 'complete':
-        case 'done':
             return 'مكتملة';
 
         case 'in-progress':
-        case 'in_progress':
-        case 'progress':
             return 'قيد التنفيذ';
 
         case 'pending':
@@ -80,15 +78,11 @@ function getStatusLabel(status) {
 }
 
 function getStatusClass(status) {
-    switch (status) {
+    switch (normalizeStatus(status)) {
         case 'completed':
-        case 'complete':
-        case 'done':
             return 'status-completed';
 
         case 'in-progress':
-        case 'in_progress':
-        case 'progress':
             return 'status-progress';
 
         case 'pending':
@@ -122,50 +116,65 @@ function formatDate(value) {
         return 'غير محدد';
     }
 
-    const date =
-        new Date(value);
+    const date = new Date(value);
 
-    if (
-        Number.isNaN(
-            date.getTime()
-        )
-    ) {
+    if (Number.isNaN(date.getTime())) {
         return String(value);
     }
 
-    return date.toLocaleDateString(
-        'ar-EG',
-        {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        }
-    );
+    return date.toLocaleDateString('ar-EG', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
 }
 
 function isOverdue(task) {
     if (
         !task?.deadline ||
-        normalizeStatus(task?.status) ===
-            'completed'
+        normalizeStatus(task?.status) === 'completed'
     ) {
         return false;
     }
 
-    const deadline =
-        new Date(
-            task.deadline
-        );
+    const deadline = new Date(task.deadline);
 
-    if (
-        Number.isNaN(
-            deadline.getTime()
-        )
-    ) {
+    if (Number.isNaN(deadline.getTime())) {
         return false;
     }
 
     return deadline < new Date();
+}
+
+function getResponseTask(response) {
+    if (!response || typeof response !== 'object') {
+        return null;
+    }
+
+    if (response.task && typeof response.task === 'object') {
+        return response.task;
+    }
+
+    if (
+        response.data?.task &&
+        typeof response.data.task === 'object'
+    ) {
+        return response.data.task;
+    }
+
+    if (
+        response.data &&
+        typeof response.data === 'object' &&
+        getId(response.data)
+    ) {
+        return response.data;
+    }
+
+    if (getId(response)) {
+        return response;
+    }
+
+    return null;
 }
 
 
@@ -174,150 +183,114 @@ function isOverdue(task) {
 ========================================================= */
 
 export default function DesignerTasks() {
-    const navigate =
-        useNavigate();
+    const navigate = useNavigate();
 
-    const [user, setUser] =
-        useState(null);
+    const [user, setUser] = useState(null);
 
-    const [tasks, setTasks] =
-        useState([]);
+    const [tasks, setTasks] = useState([]);
 
-    const [loading, setLoading] =
-        useState(true);
+    const [loading, setLoading] = useState(true);
 
-    const [error, setError] =
-        useState('');
+    const [error, setError] = useState('');
 
-    const [success, setSuccess] =
-        useState('');
+    const [success, setSuccess] = useState('');
 
-    const [search, setSearch] =
-        useState('');
+    const [search, setSearch] = useState('');
 
-    const [statusFilter, setStatusFilter] =
-        useState('all');
+    const [statusFilter, setStatusFilter] = useState('all');
 
-    const [sortBy, setSortBy] =
-        useState('newest');
+    const [sortBy, setSortBy] = useState('newest');
 
-    const [editingTask, setEditingTask] =
-        useState(null);
+    const [editingTask, setEditingTask] = useState(null);
 
-    const [editForm, setEditForm] =
-        useState({
-            title: '',
-            description: '',
-            status: 'pending',
-            fileLink: '',
-            fileName: '',
-            notes: '',
-            deadline: ''
-        });
+    const [editForm, setEditForm] = useState({
+        title: '',
+        description: '',
+        fileLink: '',
+        fileName: '',
+        notes: '',
+        deadline: ''
+    });
 
-    const [saving, setSaving] =
-        useState(false);
+    const [saving, setSaving] = useState(false);
 
-    const [statusUpdating, setStatusUpdating] =
-        useState('');
+    const [statusUpdating, setStatusUpdating] = useState('');
 
 
     /* =====================================================
        Authentication
     ===================================================== */
 
-    const verifyUser =
-        useCallback(() => {
-            const currentUser =
-                getCurrentUser();
+    const verifyUser = useCallback(() => {
+        const currentUser = getCurrentUser();
 
-            if (!currentUser) {
-                navigate(
-                    '/login',
-                    {
-                        replace: true
-                    }
-                );
+        if (!currentUser || currentUser.role !== 'designer') {
+            navigate('/login', {
+                replace: true
+            });
 
-                return null;
-            }
+            return null;
+        }
 
-            if (
-                currentUser.role !==
-                'designer'
-            ) {
-                navigate(
-                    '/login',
-                    {
-                        replace: true
-                    }
-                );
+        setUser(currentUser);
 
-                return null;
-            }
-
-            setUser(currentUser);
-
-            return currentUser;
-        }, [navigate]);
+        return currentUser;
+    }, [navigate]);
 
 
     /* =====================================================
        Load Tasks
     ===================================================== */
 
-    const loadTasks =
-        useCallback(async () => {
-            try {
+    const loadTasks = useCallback(async (showLoader = true) => {
+        try {
+            if (showLoader) {
                 setLoading(true);
-                setError('');
+            }
 
-                const currentUser =
-                    verifyUser();
+            setError('');
 
-                if (!currentUser) {
-                    return;
-                }
+            const currentUser = verifyUser();
 
-                const data =
-                    await getMyTasks();
+            if (!currentUser) {
+                return false;
+            }
 
-                setTasks(
-                    Array.isArray(data)
-                        ? data
-                        : []
-                );
-            } catch (err) {
-                console.error(
-                    'Designer Tasks Error:',
-                    err
-                );
+            const data = await getMyTasks();
 
-                if (
-                    err?.status === 401 ||
-                    err?.status === 403
-                ) {
-                    navigate(
-                        '/login',
-                        {
-                            replace: true
-                        }
-                    );
+            setTasks(
+                Array.isArray(data)
+                    ? data
+                    : []
+            );
 
-                    return;
-                }
+            return true;
+        } catch (err) {
+            console.error('Designer Tasks Error:', err);
 
-                setError(
-                    err?.message ||
-                    'حدث خطأ أثناء تحميل المهام.'
-                );
-            } finally {
+            if (
+                err?.status === 401 ||
+                err?.status === 403
+            ) {
+                navigate('/login', {
+                    replace: true
+                });
+
+                return false;
+            }
+
+            setError(
+                err?.message ||
+                'حدث خطأ أثناء تحميل المهام.'
+            );
+
+            return false;
+        } finally {
+            if (showLoader) {
                 setLoading(false);
             }
-        }, [
-            navigate,
-            verifyUser
-        ]);
+        }
+    }, [navigate, verifyUser]);
 
 
     useEffect(() => {
@@ -329,501 +302,332 @@ export default function DesignerTasks() {
        Statistics
     ===================================================== */
 
-    const statistics =
-        useMemo(() => {
-            const total =
-                tasks.length;
+    const statistics = useMemo(() => {
+        const total = tasks.length;
 
-            const completed =
-                tasks.filter(
-                    (task) =>
-                        normalizeStatus(
-                            task?.status
-                        ) ===
-                        'completed'
-                ).length;
+        const completed = tasks.filter(
+            (task) =>
+                normalizeStatus(task?.status) === 'completed'
+        ).length;
 
-            const inProgress =
-                tasks.filter(
-                    (task) =>
-                        normalizeStatus(
-                            task?.status
-                        ) ===
-                        'in-progress'
-                ).length;
+        const inProgress = tasks.filter(
+            (task) =>
+                normalizeStatus(task?.status) === 'in-progress'
+        ).length;
 
-            const pending =
-                tasks.filter(
-                    (task) =>
-                        normalizeStatus(
-                            task?.status
-                        ) ===
-                        'pending'
-                ).length;
+        const pending = tasks.filter(
+            (task) =>
+                normalizeStatus(task?.status) === 'pending'
+        ).length;
 
-            const overdue =
-                tasks.filter(
-                    (task) =>
-                        isOverdue(
-                            task
-                        )
-                ).length;
+        const overdue = tasks.filter(
+            (task) => isOverdue(task)
+        ).length;
 
-            return {
-                total,
-                completed,
-                inProgress,
-                pending,
-                overdue
-            };
-        }, [tasks]);
+        return {
+            total,
+            completed,
+            inProgress,
+            pending,
+            overdue
+        };
+    }, [tasks]);
 
 
     /* =====================================================
        Filter + Sort
     ===================================================== */
 
-    const filteredTasks =
-        useMemo(() => {
-            const normalizedSearch =
-                search
-                    .trim()
-                    .toLowerCase();
+    const filteredTasks = useMemo(() => {
+        const normalizedSearch = search.trim().toLowerCase();
 
-            const filtered =
-                tasks.filter(
-                    (task) => {
-                        const title =
-                            getTaskTitle(
-                                task
-                            ).toLowerCase();
+        const filtered = tasks.filter((task) => {
+            const title = getTaskTitle(task).toLowerCase();
 
-                        const description =
-                            getTaskDescription(
-                                task
-                            ).toLowerCase();
+            const description = getTaskDescription(task).toLowerCase();
 
-                        const matchesSearch =
-                            !normalizedSearch ||
-                            title.includes(
-                                normalizedSearch
-                            ) ||
-                            description.includes(
-                                normalizedSearch
-                            );
+            const matchesSearch =
+                !normalizedSearch ||
+                title.includes(normalizedSearch) ||
+                description.includes(normalizedSearch);
 
-                        const normalizedTaskStatus =
-                            normalizeStatus(
-                                task?.status
-                            );
+            const normalizedTaskStatus = normalizeStatus(task?.status);
 
-                        const matchesStatus =
-                            statusFilter ===
-                                'all' ||
-                            (
-                                statusFilter ===
-                                    'pending' &&
-                                normalizedTaskStatus ===
-                                    'pending'
-                            ) ||
-                            (
-                                statusFilter ===
-                                    'in-progress' &&
-                                normalizedTaskStatus ===
-                                    'in-progress'
-                            ) ||
-                            (
-                                statusFilter ===
-                                    'completed' &&
-                                normalizedTaskStatus ===
-                                    'completed'
-                            ) ||
-                            (
-                                statusFilter ===
-                                    'overdue' &&
-                                isOverdue(
-                                    task
-                                )
-                            );
-
-                        return (
-                            matchesSearch &&
-                            matchesStatus
-                        );
-                    }
+            const matchesStatus =
+                statusFilter === 'all' ||
+                (
+                    statusFilter === 'pending' &&
+                    normalizedTaskStatus === 'pending'
+                ) ||
+                (
+                    statusFilter === 'in-progress' &&
+                    normalizedTaskStatus === 'in-progress'
+                ) ||
+                (
+                    statusFilter === 'completed' &&
+                    normalizedTaskStatus === 'completed'
+                ) ||
+                (
+                    statusFilter === 'overdue' &&
+                    isOverdue(task)
                 );
 
-            return [
-                ...filtered
-            ].sort(
-                (a, b) => {
-                    if (
-                        sortBy ===
-                        'deadline'
-                    ) {
-                        const dateA =
-                            a?.deadline
-                                ? new Date(
-                                    a.deadline
-                                ).getTime()
-                                : Infinity;
+            return matchesSearch && matchesStatus;
+        });
 
-                        const dateB =
-                            b?.deadline
-                                ? new Date(
-                                    b.deadline
-                                ).getTime()
-                                : Infinity;
+        return [...filtered].sort((a, b) => {
+            if (sortBy === 'deadline') {
+                const dateA = a?.deadline
+                    ? new Date(a.deadline).getTime()
+                    : Infinity;
 
-                        return (
-                            dateA -
-                            dateB
-                        );
-                    }
+                const dateB = b?.deadline
+                    ? new Date(b.deadline).getTime()
+                    : Infinity;
 
-                    if (
-                        sortBy ===
-                        'status'
-                    ) {
-                        const order = {
-                            pending: 1,
-                            'in-progress': 2,
-                            completed: 3
-                        };
+                return dateA - dateB;
+            }
 
-                        return (
-                            (
-                                order[
-                                    normalizeStatus(
-                                        a?.status
-                                    )
-                                ] ||
-                                99
-                            ) -
-                            (
-                                order[
-                                    normalizeStatus(
-                                        b?.status
-                                    )
-                                ] ||
-                                99
-                            )
-                        );
-                    }
+            if (sortBy === 'status') {
+                const order = {
+                    pending: 1,
+                    'in-progress': 2,
+                    completed: 3
+                };
 
-                    const dateA =
-                        a?.createdAt
-                            ? new Date(
-                                a.createdAt
-                            ).getTime()
-                            : 0;
+                return (
+                    (order[normalizeStatus(a?.status)] || 99) -
+                    (order[normalizeStatus(b?.status)] || 99)
+                );
+            }
 
-                    const dateB =
-                        b?.createdAt
-                            ? new Date(
-                                b.createdAt
-                            ).getTime()
-                            : 0;
+            const dateA = a?.createdAt
+                ? new Date(a.createdAt).getTime()
+                : 0;
 
-                    return (
-                        dateB -
-                        dateA
-                    );
-                }
-            );
-        }, [
-            tasks,
-            search,
-            statusFilter,
-            sortBy
-        ]);
+            const dateB = b?.createdAt
+                ? new Date(b.createdAt).getTime()
+                : 0;
+
+            return dateB - dateA;
+        });
+    }, [tasks, search, statusFilter, sortBy]);
 
 
     /* =====================================================
        Open Edit
     ===================================================== */
 
-    const openEdit =
-        (task) => {
-            setEditingTask(
-                task
-            );
+    const openEdit = (task) => {
+        setEditingTask(task);
 
-            setEditForm({
-                title:
-                    task?.title ||
-                    task?.taskName ||
-                    '',
-                description:
-                    task?.description ||
-                    '',
-                status:
-                    normalizeStatus(
-                        task?.status
-                    ),
-                fileLink:
-                    task?.fileLink ||
-                    '',
-                fileName:
-                    task?.fileName ||
-                    '',
-                notes:
-                    task?.notes ||
-                    '',
-                deadline:
-                    task?.deadline
-                        ? String(
-                            task.deadline
-                        ).slice(
-                            0,
-                            10
-                        )
-                        : ''
-            });
+        setEditForm({
+            title:
+                task?.title ||
+                task?.taskName ||
+                '',
 
-            setError('');
-            setSuccess('');
-        };
+            description:
+                task?.description || '',
+
+            fileLink:
+                task?.fileLink || '',
+
+            fileName:
+                task?.fileName || '',
+
+            notes:
+                task?.notes || '',
+
+            deadline:
+                task?.deadline
+                    ? String(task.deadline).slice(0, 10)
+                    : ''
+        });
+
+        setError('');
+        setSuccess('');
+    };
 
 
-    const closeEdit =
-        () => {
-            if (saving) {
-                return;
-            }
+    const closeEdit = () => {
+        if (saving) {
+            return;
+        }
 
-            setEditingTask(
-                null
-            );
-        };
+        setEditingTask(null);
+    };
 
 
     /* =====================================================
        Save Task
+       General task editing does not change task status.
     ===================================================== */
 
-    const saveTask =
-        async (event) => {
-            event.preventDefault();
+    const saveTask = async (event) => {
+        event.preventDefault();
 
-            if (!editingTask) {
-                return;
+        if (saving || !editingTask) {
+            return;
+        }
+
+        const taskId = getId(editingTask);
+
+        if (!taskId) {
+            setError('معرف المهمة غير موجود.');
+            return;
+        }
+
+        const title = editForm.title.trim();
+
+        if (!title) {
+            setError('عنوان المهمة مطلوب.');
+            return;
+        }
+
+        try {
+            setSaving(true);
+            setError('');
+            setSuccess('');
+
+            const payload = {
+                title,
+                description: editForm.description.trim(),
+                fileLink: editForm.fileLink.trim(),
+                fileName: editForm.fileName.trim(),
+                notes: editForm.notes.trim(),
+                deadline: editForm.deadline || null
+            };
+
+            const response = await updateMyTask(taskId, payload);
+
+            const updatedTask = getResponseTask(response);
+
+            if (updatedTask) {
+                setTasks((previous) =>
+                    previous.map((task) =>
+                        String(getId(task)) === String(taskId)
+                            ? {
+                                ...task,
+                                ...updatedTask
+                            }
+                            : task
+                    )
+                );
+            } else {
+                // The API may return only a success message.
+                // Reload from the backend instead of guessing the saved data.
+                await loadTasks(false);
             }
 
-            const taskId =
-                getId(
-                    editingTask
-                );
+            setEditingTask(null);
 
-            if (!taskId) {
-                setError(
-                    'معرف المهمة غير موجود.'
-                );
+            setSuccess('تم تحديث المهمة بنجاح.');
+        } catch (err) {
+            console.error('Task update error:', err);
 
-                return;
-            }
-
-            try {
-                setSaving(true);
-                setError('');
-                setSuccess('');
-
-                const response =
-                    await updateMyTask(
-                        taskId,
-                        {
-                            title:
-                                editForm.title,
-
-                            description:
-                                editForm.description,
-
-                            status:
-                                editForm.status,
-
-                            fileLink:
-                                editForm.fileLink,
-
-                            fileName:
-                                editForm.fileName,
-
-                            notes:
-                                editForm.notes,
-
-                            deadline:
-                                editForm.deadline ||
-                                null
-                        }
-                    );
-
-                const updatedTask =
-                    response?.task ||
-                    response;
-
-                setTasks(
-                    (previous) =>
-                        previous.map(
-                            (task) =>
-                                String(
-                                    getId(
-                                        task
-                                    )
-                                ) ===
-                                String(
-                                    taskId
-                                )
-                                    ? {
-                                        ...task,
-                                        ...updatedTask,
-                                        ...editForm
-                                    }
-                                    : task
-                        )
-                );
-
-                setEditingTask(
-                    null
-                );
-
-                setSuccess(
-                    'تم تحديث المهمة بنجاح.'
-                );
-            } catch (err) {
-                console.error(
-                    'Task update error:',
-                    err
-                );
-
-                setError(
-                    err?.message ||
-                    'تعذر تحديث المهمة.'
-                );
-            } finally {
-                setSaving(false);
-            }
-        };
+            setError(
+                err?.message ||
+                'تعذر تحديث المهمة.'
+            );
+        } finally {
+            setSaving(false);
+        }
+    };
 
 
     /* =====================================================
        Status
+       Status changes are handled only by this function.
     ===================================================== */
 
-    const changeTaskStatus =
-        async (
-            task,
-            status
-        ) => {
-            const taskId =
-                getId(task);
+    const changeTaskStatus = async (task, status) => {
+        const taskId = getId(task);
 
-            if (!taskId) {
-                return;
+        if (!taskId || statusUpdating) {
+            return;
+        }
+
+        const currentStatus = normalizeStatus(task?.status);
+
+        const allowedStatuses = [
+            'pending',
+            'in-progress',
+            'completed'
+        ];
+
+        if (!allowedStatuses.includes(status)) {
+            setError('حالة المهمة المطلوبة غير صحيحة.');
+            return;
+        }
+
+        if (currentStatus === status) {
+            return;
+        }
+
+        try {
+            setStatusUpdating(String(taskId));
+            setError('');
+            setSuccess('');
+
+            await updateTaskStatus(taskId, status);
+
+            // Always reload the server version.
+            // This prevents the UI from assuming the requested status
+            // was accepted when the backend may apply different rules.
+            const refreshed = await loadTasks(false);
+
+            if (refreshed) {
+                setSuccess('تم تحديث حالة المهمة.');
             }
+        } catch (err) {
+            console.error('Task status error:', err);
 
-            try {
-                setStatusUpdating(
-                    String(taskId)
-                );
-
-                setError('');
-                setSuccess('');
-
-                const response =
-                    await updateTaskStatus(
-                        taskId,
-                        status
-                    );
-
-                const updatedTask =
-                    response?.task ||
-                    response;
-
-                setTasks(
-                    (previous) =>
-                        previous.map(
-                            (item) =>
-                                String(
-                                    getId(
-                                        item
-                                    )
-                                ) ===
-                                String(
-                                    taskId
-                                )
-                                    ? {
-                                        ...item,
-                                        ...updatedTask,
-                                        status
-                                    }
-                                    : item
-                        )
-                );
-
-                setSuccess(
-                    'تم تحديث حالة المهمة.'
-                );
-            } catch (err) {
-                console.error(
-                    'Task status error:',
-                    err
-                );
-
-                setError(
-                    err?.message ||
-                    'تعذر تحديث حالة المهمة.'
-                );
-            } finally {
-                setStatusUpdating('');
-            }
-        };
+            setError(
+                err?.message ||
+                'تعذر تحديث حالة المهمة.'
+            );
+        } finally {
+            setStatusUpdating('');
+        }
+    };
 
 
     /* =====================================================
        Navigation
     ===================================================== */
 
-    const openProject =
-        (projectId) => {
-            if (!projectId) {
-                return;
-            }
+    const openProject = (projectId) => {
+        const id = getId(projectId) || projectId;
 
-            navigate(
-                `/designer/projects/${projectId}`
-            );
-        };
+        if (!id) {
+            return;
+        }
 
-
-    const openTask =
-        (taskId) => {
-            if (!taskId) {
-                return;
-            }
-
-            navigate(
-                `/designer/tasks/${taskId}`
-            );
-        };
+        navigate(`/designer/projects/${id}`);
+    };
 
 
-    const handleLogout =
-        async () => {
-            try {
-                await logoutUser();
-            } catch (err) {
-                console.error(
-                    'Logout error:',
-                    err
-                );
-            } finally {
-                navigate(
-                    '/login',
-                    {
-                        replace: true
-                    }
-                );
-            }
-        };
+    const openTask = (taskId) => {
+        if (!taskId) {
+            return;
+        }
+
+        navigate(`/designer/tasks/${taskId}`);
+    };
+
+
+    const handleLogout = async () => {
+        try {
+            await logoutUser();
+        } catch (err) {
+            console.error('Logout error:', err);
+        } finally {
+            navigate('/login', {
+                replace: true
+            });
+        }
+    };
 
 
     /* =====================================================
@@ -853,254 +657,144 @@ export default function DesignerTasks() {
                 title="OSTUDIO"
             />
 
-
             <main className="tasks-container">
 
-                {/* =================================================
-                    Header
-                ================================================= */}
+                {/* Header */}
 
                 <section className="page-header">
 
                     <div>
-
                         <div className="page-kicker">
                             DESIGNER WORKSPACE
                         </div>
 
-                        <h1>
-                            مهامي
-                        </h1>
+                        <h1>مهامي</h1>
 
                         <p>
-                            المهام التي تم تعيينها لك
-                            فقط.
+                            المهام التي تم تعيينها لك فقط.
                         </p>
-
                     </div>
-
 
                     <div className="header-actions">
 
                         <button
                             type="button"
                             className="refresh-button"
-                            onClick={
-                                loadTasks
-                            }
+                            onClick={() => loadTasks()}
+                            disabled={loading || Boolean(statusUpdating)}
                         >
                             ↻ تحديث
                         </button>
 
-                        <NotificationBell
-                            user={user}
-                        />
+                        <NotificationBell user={user} />
 
                     </div>
 
                 </section>
 
 
-                {/* =================================================
-                    Alerts
-                ================================================= */}
+                {/* Alerts */}
 
                 {error && (
                     <div className="alert error-alert">
+                        <span>⚠️</span>
 
-                        <span>
-                            ⚠️
-                        </span>
-
-                        <div>
-                            {error}
-                        </div>
+                        <div>{error}</div>
 
                         <button
                             type="button"
-                            onClick={() =>
-                                setError('')
-                            }
+                            onClick={() => setError('')}
+                            aria-label="إغلاق رسالة الخطأ"
                         >
                             ×
                         </button>
-
                     </div>
                 )}
-
 
                 {success && (
                     <div className="alert success-alert">
+                        <span>✓</span>
 
-                        <span>
-                            ✓
-                        </span>
-
-                        <div>
-                            {success}
-                        </div>
+                        <div>{success}</div>
 
                         <button
                             type="button"
-                            onClick={() =>
-                                setSuccess('')
-                            }
+                            onClick={() => setSuccess('')}
+                            aria-label="إغلاق رسالة النجاح"
                         >
                             ×
                         </button>
-
                     </div>
                 )}
 
 
-                {/* =================================================
-                    Statistics
-                ================================================= */}
+                {/* Statistics */}
 
                 <section className="stats-grid">
 
                     <div className="stat-card">
-
-                        <div className="stat-icon">
-                            📋
-                        </div>
-
+                        <div className="stat-icon">📋</div>
                         <div>
-                            <span>
-                                إجمالي المهام
-                            </span>
-
-                            <strong>
-                                {
-                                    statistics.total
-                                }
-                            </strong>
+                            <span>إجمالي المهام</span>
+                            <strong>{statistics.total}</strong>
                         </div>
-
                     </div>
 
-
                     <div className="stat-card">
-
-                        <div className="stat-icon">
-                            ⏳
-                        </div>
-
+                        <div className="stat-icon">⏳</div>
                         <div>
-                            <span>
-                                معلقة
-                            </span>
-
-                            <strong>
-                                {
-                                    statistics.pending
-                                }
-                            </strong>
+                            <span>معلقة</span>
+                            <strong>{statistics.pending}</strong>
                         </div>
-
                     </div>
 
-
                     <div className="stat-card">
-
-                        <div className="stat-icon">
-                            🔄
-                        </div>
-
+                        <div className="stat-icon">🔄</div>
                         <div>
-                            <span>
-                                قيد التنفيذ
-                            </span>
-
-                            <strong>
-                                {
-                                    statistics.inProgress
-                                }
-                            </strong>
+                            <span>قيد التنفيذ</span>
+                            <strong>{statistics.inProgress}</strong>
                         </div>
-
                     </div>
 
-
                     <div className="stat-card">
-
-                        <div className="stat-icon">
-                            ✅
-                        </div>
-
+                        <div className="stat-icon">✅</div>
                         <div>
-                            <span>
-                                مكتملة
-                            </span>
-
-                            <strong>
-                                {
-                                    statistics.completed
-                                }
-                            </strong>
+                            <span>مكتملة</span>
+                            <strong>{statistics.completed}</strong>
                         </div>
-
                     </div>
 
-
                     <div className="stat-card">
-
-                        <div className="stat-icon">
-                            ⚠️
-                        </div>
-
+                        <div className="stat-icon">⚠️</div>
                         <div>
-                            <span>
-                                متأخرة
-                            </span>
-
-                            <strong>
-                                {
-                                    statistics.overdue
-                                }
-                            </strong>
+                            <span>متأخرة</span>
+                            <strong>{statistics.overdue}</strong>
                         </div>
-
                     </div>
 
                 </section>
 
 
-                {/* =================================================
-                    Filters
-                ================================================= */}
+                {/* Filters */}
 
                 <section className="filters-panel">
 
                     <div className="search-box">
 
-                        <span>
-                            🔎
-                        </span>
+                        <span>🔎</span>
 
                         <input
                             type="text"
                             placeholder="ابحث عن مهمة..."
-                            value={
-                                search
-                            }
-                            onChange={(
-                                event
-                            ) =>
-                                setSearch(
-                                    event
-                                        .target
-                                        .value
-                                )
-                            }
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
                         />
 
                         {search && (
                             <button
                                 type="button"
-                                onClick={() =>
-                                    setSearch('')
-                                }
+                                onClick={() => setSearch('')}
+                                aria-label="مسح البحث"
                             >
                                 ×
                             </button>
@@ -1108,84 +802,34 @@ export default function DesignerTasks() {
 
                     </div>
 
-
                     <div className="filter-group">
 
-                        <label>
-                            الحالة
-                        </label>
+                        <label>الحالة</label>
 
                         <select
-                            value={
-                                statusFilter
-                            }
-                            onChange={(
-                                event
-                            ) =>
-                                setStatusFilter(
-                                    event
-                                        .target
-                                        .value
-                                )
-                            }
+                            value={statusFilter}
+                            onChange={(event) => setStatusFilter(event.target.value)}
                         >
-                            <option value="all">
-                                كل الحالات
-                            </option>
-
-                            <option value="pending">
-                                معلقة
-                            </option>
-
-                            <option value="in-progress">
-                                قيد التنفيذ
-                            </option>
-
-                            <option value="completed">
-                                مكتملة
-                            </option>
-
-                            <option value="overdue">
-                                متأخرة
-                            </option>
-
+                            <option value="all">كل الحالات</option>
+                            <option value="pending">معلقة</option>
+                            <option value="in-progress">قيد التنفيذ</option>
+                            <option value="completed">مكتملة</option>
+                            <option value="overdue">متأخرة</option>
                         </select>
 
                     </div>
 
-
                     <div className="filter-group">
 
-                        <label>
-                            ترتيب
-                        </label>
+                        <label>ترتيب</label>
 
                         <select
-                            value={
-                                sortBy
-                            }
-                            onChange={(
-                                event
-                            ) =>
-                                setSortBy(
-                                    event
-                                        .target
-                                        .value
-                                )
-                            }
+                            value={sortBy}
+                            onChange={(event) => setSortBy(event.target.value)}
                         >
-                            <option value="newest">
-                                الأحدث
-                            </option>
-
-                            <option value="deadline">
-                                أقرب Deadline
-                            </option>
-
-                            <option value="status">
-                                حسب الحالة
-                            </option>
-
+                            <option value="newest">الأحدث</option>
+                            <option value="deadline">أقرب Deadline</option>
+                            <option value="status">حسب الحالة</option>
                         </select>
 
                     </div>
@@ -1193,24 +837,14 @@ export default function DesignerTasks() {
                 </section>
 
 
-                {/* =================================================
-                    Results
-                ================================================= */}
+                {/* Results */}
 
                 <div className="results-header">
 
                     <div>
-                        <strong>
-                            {
-                                filteredTasks.length
-                            }
-                        </strong>
-
-                        <span>
-                            مهمة
-                        </span>
+                        <strong>{filteredTasks.length}</strong>
+                        <span>مهمة</span>
                     </div>
-
 
                     {(search ||
                         statusFilter !== 'all' ||
@@ -1219,12 +853,8 @@ export default function DesignerTasks() {
                             type="button"
                             onClick={() => {
                                 setSearch('');
-                                setStatusFilter(
-                                    'all'
-                                );
-                                setSortBy(
-                                    'newest'
-                                );
+                                setStatusFilter('all');
+                                setSortBy('newest');
                             }}
                         >
                             إعادة ضبط الفلاتر
@@ -1234,54 +864,40 @@ export default function DesignerTasks() {
                 </div>
 
 
-                {/* =================================================
-                    Task List
-                ================================================= */}
+                {/* Task List */}
 
                 {filteredTasks.length === 0 ? (
+
                     <section className="empty-state">
 
-                        <div className="empty-icon">
-                            📋
-                        </div>
+                        <div className="empty-icon">📋</div>
 
                         {tasks.length === 0 ? (
                             <>
-                                <h2>
-                                    لا توجد مهام
-                                </h2>
+                                <h2>لا توجد مهام</h2>
 
                                 <p>
-                                    لا توجد أي مهام متعيّنة
-                                    عليك حاليًا.
+                                    لا توجد أي مهام متعيّنة عليك حاليًا.
                                 </p>
 
                                 <small>
-                                    عندما يتم تعيين مهمة
-                                    لك ستظهر هنا تلقائيًا.
+                                    عندما يتم تعيين مهمة لك ستظهر هنا تلقائيًا.
                                 </small>
                             </>
                         ) : (
                             <>
-                                <h2>
-                                    لا توجد نتائج
-                                </h2>
+                                <h2>لا توجد نتائج</h2>
 
                                 <p>
-                                    لم نجد مهام تطابق
-                                    الفلاتر الحالية.
+                                    لم نجد مهام تطابق الفلاتر الحالية.
                                 </p>
 
                                 <button
                                     type="button"
                                     onClick={() => {
                                         setSearch('');
-                                        setStatusFilter(
-                                            'all'
-                                        );
-                                        setSortBy(
-                                            'newest'
-                                        );
+                                        setStatusFilter('all');
+                                        setSortBy('newest');
                                     }}
                                 >
                                     عرض كل المهام
@@ -1290,256 +906,166 @@ export default function DesignerTasks() {
                         )}
 
                     </section>
+
                 ) : (
+
                     <section className="tasks-list">
 
-                        {filteredTasks.map(
-                            (task) => {
+                        {filteredTasks.map((task) => {
+                            const taskId = getId(task);
 
-                                const taskId =
-                                    getId(
-                                        task
-                                    );
+                            const status = normalizeStatus(task?.status);
 
-                                const status =
-                                    normalizeStatus(
-                                        task?.status
-                                    );
+                            const busy =
+                                statusUpdating === String(taskId);
 
-                                const busy =
-                                    statusUpdating ===
-                                    String(
-                                        taskId
-                                    );
+                            return (
+                                <article
+                                    key={taskId || `${getTaskTitle(task)}-${task.createdAt || ''}`}
+                                    className={
+                                        isOverdue(task)
+                                            ? 'task-card overdue'
+                                            : 'task-card'
+                                    }
+                                >
 
-                                return (
-                                    <article
-                                        key={
-                                            taskId
-                                        }
-                                        className={
-                                            isOverdue(
-                                                task
-                                            )
-                                                ? 'task-card overdue'
-                                                : 'task-card'
-                                        }
-                                    >
+                                    {/* Main */}
 
-                                        {/* Main */}
-                                        <div className="task-main">
+                                    <div className="task-main">
 
-                                            <div className="task-icon">
-                                                {status ===
-                                                'completed'
-                                                    ? '✓'
-                                                    : '📋'}
-                                            </div>
+                                        <div className="task-icon">
+                                            {status === 'completed' ? '✓' : '📋'}
+                                        </div>
 
+                                        <div className="task-content">
 
-                                            <div className="task-content">
+                                            <div className="task-title-row">
 
-                                                <div className="task-title-row">
+                                                <h2>{getTaskTitle(task)}</h2>
 
-                                                    <h2>
-                                                        {getTaskTitle(
-                                                            task
-                                                        )}
-                                                    </h2>
+                                                <span className={`status-badge ${getStatusClass(status)}`}>
+                                                    {getStatusLabel(status)}
+                                                </span>
 
-                                                    <span
-                                                        className={`status-badge ${getStatusClass(
-                                                            status
-                                                        )}`}
-                                                    >
-                                                        {getStatusLabel(
-                                                            status
-                                                        )}
+                                                {isOverdue(task) && (
+                                                    <span className="overdue-badge">
+                                                        متأخرة
                                                     </span>
+                                                )}
 
-                                                    {isOverdue(
-                                                        task
-                                                    ) && (
-                                                        <span className="overdue-badge">
-                                                            متأخرة
-                                                        </span>
-                                                    )}
+                                            </div>
 
-                                                </div>
+                                            <p>{getTaskDescription(task)}</p>
 
+                                            <div className="task-meta">
 
-                                                <p>
-                                                    {getTaskDescription(
-                                                        task
-                                                    )}
-                                                </p>
+                                                {task?.projectId && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openProject(task.projectId)}
+                                                    >
+                                                        📁 المشروع
+                                                    </button>
+                                                )}
 
+                                                {task?.deadline && (
+                                                    <span>
+                                                        📅 {formatDate(task.deadline)}
+                                                    </span>
+                                                )}
 
-                                                <div className="task-meta">
-
-                                                    {task?.projectId && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                openProject(
-                                                                    getId(
-                                                                        task.projectId
-                                                                    ) ||
-                                                                    task.projectId
-                                                                )
-                                                            }
-                                                        >
-                                                            📁 المشروع
-                                                        </button>
-                                                    )}
-
-                                                    {task?.deadline && (
-                                                        <span>
-                                                            📅{' '}
-                                                            {formatDate(
-                                                                task.deadline
-                                                            )}
-                                                        </span>
-                                                    )}
-
-                                                    {task?.fileName && (
-                                                        <span>
-                                                            📎{' '}
-                                                            {
-                                                                task.fileName
-                                                            }
-                                                        </span>
-                                                    )}
-
-                                                </div>
+                                                {task?.fileName && (
+                                                    <span>
+                                                        📎 {task.fileName}
+                                                    </span>
+                                                )}
 
                                             </div>
 
                                         </div>
 
+                                    </div>
 
-                                        {/* Actions */}
-                                        <div className="task-actions">
 
+                                    {/* Actions */}
+
+                                    <div className="task-actions">
+
+                                        <button
+                                            type="button"
+                                            className="details-button"
+                                            onClick={() => openTask(taskId)}
+                                            disabled={!taskId}
+                                        >
+                                            التفاصيل
+                                        </button>
+
+                                        {status !== 'completed' && (
                                             <button
                                                 type="button"
-                                                className="details-button"
-                                                onClick={() =>
-                                                    openTask(
-                                                        taskId
-                                                    )
-                                                }
+                                                className="complete-button"
+                                                disabled={busy || Boolean(statusUpdating) || !taskId}
+                                                onClick={() => changeTaskStatus(task, 'completed')}
                                             >
-                                                التفاصيل
+                                                {busy ? '...' : '✓ إكمال'}
                                             </button>
+                                        )}
 
-
-                                            {status !==
-                                                'completed' && (
-                                                <button
-                                                    type="button"
-                                                    className="complete-button"
-                                                    disabled={
-                                                        busy
-                                                    }
-                                                    onClick={() =>
-                                                        changeTaskStatus(
-                                                            task,
-                                                            'completed'
-                                                        )
-                                                    }
-                                                >
-                                                    {busy
-                                                        ? '...'
-                                                        : '✓ إكمال'}
-                                                </button>
-                                            )}
-
-
-                                            {status ===
-                                                'pending' && (
-                                                <button
-                                                    type="button"
-                                                    className="progress-button"
-                                                    disabled={
-                                                        busy
-                                                    }
-                                                    onClick={() =>
-                                                        changeTaskStatus(
-                                                            task,
-                                                            'in-progress'
-                                                        )
-                                                    }
-                                                >
-                                                    بدء التنفيذ
-                                                </button>
-                                            )}
-
-
-                                            {status ===
-                                                'completed' && (
-                                                <button
-                                                    type="button"
-                                                    className="reopen-button"
-                                                    disabled={
-                                                        busy
-                                                    }
-                                                    onClick={() =>
-                                                        changeTaskStatus(
-                                                            task,
-                                                            'in-progress'
-                                                        )
-                                                    }
-                                                >
-                                                    إعادة فتح
-                                                </button>
-                                            )}
-
-
+                                        {status === 'pending' && (
                                             <button
                                                 type="button"
-                                                className="edit-button"
-                                                onClick={() =>
-                                                    openEdit(
-                                                        task
-                                                    )
-                                                }
+                                                className="progress-button"
+                                                disabled={busy || Boolean(statusUpdating) || !taskId}
+                                                onClick={() => changeTaskStatus(task, 'in-progress')}
                                             >
-                                                تعديل
+                                                بدء التنفيذ
                                             </button>
+                                        )}
 
-                                        </div>
+                                        {status === 'completed' && (
+                                            <button
+                                                type="button"
+                                                className="reopen-button"
+                                                disabled={busy || Boolean(statusUpdating) || !taskId}
+                                                onClick={() => changeTaskStatus(task, 'in-progress')}
+                                            >
+                                                إعادة فتح
+                                            </button>
+                                        )}
 
-                                    </article>
-                                );
-                            }
-                        )}
+                                        <button
+                                            type="button"
+                                            className="edit-button"
+                                            onClick={() => openEdit(task)}
+                                            disabled={!taskId || Boolean(statusUpdating)}
+                                        >
+                                            تعديل
+                                        </button>
+
+                                    </div>
+
+                                </article>
+                            );
+                        })}
 
                     </section>
+
                 )}
 
 
-                {/* =================================================
-                    Permission Notice
-                ================================================= */}
+                {/* Permission Notice */}
 
                 <section className="permission-notice">
 
-                    <div className="notice-icon">
-                        🔐
-                    </div>
+                    <div className="notice-icon">🔐</div>
 
                     <div>
 
-                        <h3>
-                            المهام الخاصة بك فقط
-                        </h3>
+                        <h3>المهام الخاصة بك فقط</h3>
 
                         <p>
-                            يتم عرض المهام التي قام النظام
-                            بتعيينها للمستخدم الحالي فقط.
-                            لا يمكنك تعديل أو الوصول إلى
-                            مهام مصممين آخرين.
+                            يتم عرض المهام التي قام النظام بتعيينها للمستخدم الحالي فقط.
+                            لا يمكنك تعديل أو الوصول إلى مهام مصممين آخرين.
                         </p>
 
                     </div>
@@ -1549,47 +1075,31 @@ export default function DesignerTasks() {
             </main>
 
 
-            {/* =====================================================
-                Edit Modal
-            ===================================================== */}
+            {/* Edit Modal */}
 
             {editingTask && (
                 <div
                     className="modal-overlay"
-                    onMouseDown={
-                        closeEdit
-                    }
+                    onMouseDown={closeEdit}
                 >
 
                     <div
                         className="modal"
-                        onMouseDown={(event) =>
-                            event.stopPropagation()
-                        }
+                        onMouseDown={(event) => event.stopPropagation()}
                     >
 
                         <div className="modal-header">
 
                             <div>
-
-                                <h2>
-                                    تعديل المهمة
-                                </h2>
-
-                                <p>
-                                    {getTaskTitle(
-                                        editingTask
-                                    )}
-                                </p>
-
+                                <h2>تعديل المهمة</h2>
+                                <p>{getTaskTitle(editingTask)}</p>
                             </div>
-
 
                             <button
                                 type="button"
-                                onClick={
-                                    closeEdit
-                                }
+                                onClick={closeEdit}
+                                disabled={saving}
+                                aria-label="إغلاق نافذة التعديل"
                             >
                                 ×
                             </button>
@@ -1597,37 +1107,20 @@ export default function DesignerTasks() {
                         </div>
 
 
-                        <form
-                            onSubmit={
-                                saveTask
-                            }
-                        >
+                        <form onSubmit={saveTask}>
 
                             <div className="form-group">
 
-                                <label>
-                                    عنوان المهمة
-                                </label>
+                                <label>عنوان المهمة</label>
 
                                 <input
                                     type="text"
-                                    value={
-                                        editForm.title
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        setEditForm(
-                                            (
-                                                previous
-                                            ) => ({
-                                                ...previous,
-                                                title:
-                                                    event
-                                                        .target
-                                                        .value
-                                            })
-                                        )
+                                    value={editForm.title}
+                                    onChange={(event) =>
+                                        setEditForm((previous) => ({
+                                            ...previous,
+                                            title: event.target.value
+                                        }))
                                     }
                                     required
                                 />
@@ -1637,29 +1130,16 @@ export default function DesignerTasks() {
 
                             <div className="form-group">
 
-                                <label>
-                                    الوصف
-                                </label>
+                                <label>الوصف</label>
 
                                 <textarea
                                     rows={4}
-                                    value={
-                                        editForm.description
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        setEditForm(
-                                            (
-                                                previous
-                                            ) => ({
-                                                ...previous,
-                                                description:
-                                                    event
-                                                        .target
-                                                        .value
-                                            })
-                                        )
+                                    value={editForm.description}
+                                    onChange={(event) =>
+                                        setEditForm((previous) => ({
+                                            ...previous,
+                                            description: event.target.value
+                                        }))
                                     }
                                 />
 
@@ -1670,71 +1150,16 @@ export default function DesignerTasks() {
 
                                 <div className="form-group">
 
-                                    <label>
-                                        الحالة
-                                    </label>
-
-                                    <select
-                                        value={
-                                            editForm.status
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            setEditForm(
-                                                (
-                                                    previous
-                                                ) => ({
-                                                    ...previous,
-                                                    status:
-                                                        event
-                                                            .target
-                                                            .value
-                                                })
-                                            )
-                                        }
-                                    >
-                                        <option value="pending">
-                                            معلقة
-                                        </option>
-
-                                        <option value="in-progress">
-                                            قيد التنفيذ
-                                        </option>
-
-                                        <option value="completed">
-                                            مكتملة
-                                        </option>
-                                    </select>
-
-                                </div>
-
-
-                                <div className="form-group">
-
-                                    <label>
-                                        Deadline
-                                    </label>
+                                    <label>Deadline</label>
 
                                     <input
                                         type="date"
-                                        value={
-                                            editForm.deadline
-                                        }
-                                        onChange={(
-                                            event
-                                        ) =>
-                                            setEditForm(
-                                                (
-                                                    previous
-                                                ) => ({
-                                                    ...previous,
-                                                    deadline:
-                                                        event
-                                                            .target
-                                                            .value
-                                                })
-                                            )
+                                        value={editForm.deadline}
+                                        onChange={(event) =>
+                                            setEditForm((previous) => ({
+                                                ...previous,
+                                                deadline: event.target.value
+                                            }))
                                         }
                                     />
 
@@ -1745,29 +1170,16 @@ export default function DesignerTasks() {
 
                             <div className="form-group">
 
-                                <label>
-                                    رابط الملف
-                                </label>
+                                <label>رابط الملف</label>
 
                                 <input
                                     type="url"
-                                    value={
-                                        editForm.fileLink
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        setEditForm(
-                                            (
-                                                previous
-                                            ) => ({
-                                                ...previous,
-                                                fileLink:
-                                                    event
-                                                        .target
-                                                        .value
-                                            })
-                                        )
+                                    value={editForm.fileLink}
+                                    onChange={(event) =>
+                                        setEditForm((previous) => ({
+                                            ...previous,
+                                            fileLink: event.target.value
+                                        }))
                                     }
                                     placeholder="https://..."
                                 />
@@ -1777,29 +1189,16 @@ export default function DesignerTasks() {
 
                             <div className="form-group">
 
-                                <label>
-                                    اسم الملف
-                                </label>
+                                <label>اسم الملف</label>
 
                                 <input
                                     type="text"
-                                    value={
-                                        editForm.fileName
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        setEditForm(
-                                            (
-                                                previous
-                                            ) => ({
-                                                ...previous,
-                                                fileName:
-                                                    event
-                                                        .target
-                                                        .value
-                                            })
-                                        )
+                                    value={editForm.fileName}
+                                    onChange={(event) =>
+                                        setEditForm((previous) => ({
+                                            ...previous,
+                                            fileName: event.target.value
+                                        }))
                                     }
                                 />
 
@@ -1808,29 +1207,16 @@ export default function DesignerTasks() {
 
                             <div className="form-group">
 
-                                <label>
-                                    الملاحظات
-                                </label>
+                                <label>الملاحظات</label>
 
                                 <textarea
                                     rows={4}
-                                    value={
-                                        editForm.notes
-                                    }
-                                    onChange={(
-                                        event
-                                    ) =>
-                                        setEditForm(
-                                            (
-                                                previous
-                                            ) => ({
-                                                ...previous,
-                                                notes:
-                                                    event
-                                                        .target
-                                                        .value
-                                            })
-                                        )
+                                    value={editForm.notes}
+                                    onChange={(event) =>
+                                        setEditForm((previous) => ({
+                                            ...previous,
+                                            notes: event.target.value
+                                        }))
                                     }
                                 />
 
@@ -1842,12 +1228,8 @@ export default function DesignerTasks() {
                                 <button
                                     type="button"
                                     className="cancel-button"
-                                    disabled={
-                                        saving
-                                    }
-                                    onClick={
-                                        closeEdit
-                                    }
+                                    disabled={saving}
+                                    onClick={closeEdit}
                                 >
                                     إلغاء
                                 </button>
@@ -1855,13 +1237,9 @@ export default function DesignerTasks() {
                                 <button
                                     type="submit"
                                     className="save-button"
-                                    disabled={
-                                        saving
-                                    }
+                                    disabled={saving}
                                 >
-                                    {saving
-                                        ? 'جاري الحفظ...'
-                                        : 'حفظ التعديلات'}
+                                    {saving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
                                 </button>
 
                             </div>
@@ -1888,18 +1266,10 @@ export default function DesignerTasks() {
                 }
 
                 .tasks-container {
-                    width: min(
-                        1400px,
-                        calc(100% - 48px)
-                    );
+                    width: min(1400px, calc(100% - 48px));
                     margin: 0 auto;
                     padding: 110px 0 60px;
                 }
-
-
-                /* =========================================
-                   Header
-                ========================================= */
 
                 .page-header {
                     display: flex;
@@ -1952,10 +1322,10 @@ export default function DesignerTasks() {
                     background: #f8fafc;
                 }
 
-
-                /* =========================================
-                   Alerts
-                ========================================= */
+                .refresh-button:disabled {
+                    opacity: 0.55;
+                    cursor: not-allowed;
+                }
 
                 .alert {
                     display: flex;
@@ -1990,18 +1360,9 @@ export default function DesignerTasks() {
                     color: #166534;
                 }
 
-
-                /* =========================================
-                   Statistics
-                ========================================= */
-
                 .stats-grid {
                     display: grid;
-                    grid-template-columns:
-                        repeat(
-                            5,
-                            minmax(0, 1fr)
-                        );
+                    grid-template-columns: repeat(5, minmax(0, 1fr));
                     gap: 13px;
                     margin-bottom: 20px;
                 }
@@ -2014,14 +1375,7 @@ export default function DesignerTasks() {
                     border: 1px solid #e8edf4;
                     border-radius: 15px;
                     padding: 17px;
-                    box-shadow:
-                        0 6px 22px
-                        rgba(
-                            15,
-                            23,
-                            42,
-                            0.035
-                        );
+                    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.035);
                 }
 
                 .stat-icon {
@@ -2049,11 +1403,6 @@ export default function DesignerTasks() {
                     font-size: 22px;
                     font-weight: 900;
                 }
-
-
-                /* =========================================
-                   Filters
-                ========================================= */
 
                 .filters-panel {
                     display: flex;
@@ -2122,11 +1471,6 @@ export default function DesignerTasks() {
                     font-size: 11px;
                 }
 
-
-                /* =========================================
-                   Results
-                ========================================= */
-
                 .results-header {
                     display: flex;
                     justify-content: space-between;
@@ -2161,11 +1505,6 @@ export default function DesignerTasks() {
                     font-weight: 800;
                 }
 
-
-                /* =========================================
-                   Tasks
-                ========================================= */
-
                 .tasks-list {
                     display: flex;
                     flex-direction: column;
@@ -2181,31 +1520,14 @@ export default function DesignerTasks() {
                     border: 1px solid #e8edf4;
                     border-radius: 15px;
                     padding: 17px;
-                    transition:
-                        transform 0.2s ease,
-                        box-shadow 0.2s ease,
-                        border-color 0.2s ease;
-                    box-shadow:
-                        0 5px 20px
-                        rgba(
-                            15,
-                            23,
-                            42,
-                            0.03
-                        );
+                    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+                    box-shadow: 0 5px 20px rgba(15, 23, 42, 0.03);
                 }
 
                 .task-card:hover {
                     transform: translateY(-2px);
                     border-color: #cbd5e1;
-                    box-shadow:
-                        0 12px 28px
-                        rgba(
-                            15,
-                            23,
-                            42,
-                            0.07
-                        );
+                    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
                 }
 
                 .task-card.overdue {
@@ -2327,11 +1649,6 @@ export default function DesignerTasks() {
                     color: #334155;
                 }
 
-
-                /* =========================================
-                   Actions
-                ========================================= */
-
                 .task-actions {
                     display: flex;
                     align-items: center;
@@ -2384,11 +1701,6 @@ export default function DesignerTasks() {
                     opacity: 0.55;
                     cursor: not-allowed;
                 }
-
-
-                /* =========================================
-                   Empty
-                ========================================= */
 
                 .empty-state {
                     background: #ffffff;
@@ -2444,11 +1756,6 @@ export default function DesignerTasks() {
                     font-weight: 800;
                 }
 
-
-                /* =========================================
-                   Permission
-                ========================================= */
-
                 .permission-notice {
                     display: flex;
                     align-items: flex-start;
@@ -2486,21 +1793,11 @@ export default function DesignerTasks() {
                     line-height: 1.8;
                 }
 
-
-                /* =========================================
-                   Modal
-                ========================================= */
-
                 .modal-overlay {
                     position: fixed;
                     inset: 0;
                     z-index: 9999;
-                    background: rgba(
-                        15,
-                        23,
-                        42,
-                        0.48
-                    );
+                    background: rgba(15, 23, 42, 0.48);
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -2508,25 +1805,13 @@ export default function DesignerTasks() {
                 }
 
                 .modal {
-                    width: min(
-                        620px,
-                        100%
-                    );
-                    max-height: calc(
-                        100vh - 40px
-                    );
+                    width: min(620px, 100%);
+                    max-height: calc(100vh - 40px);
                     overflow-y: auto;
                     background: #ffffff;
                     border-radius: 18px;
                     padding: 22px;
-                    box-shadow:
-                        0 25px 70px
-                        rgba(
-                            15,
-                            23,
-                            42,
-                            0.25
-                        );
+                    box-shadow: 0 25px 70px rgba(15, 23, 42, 0.25);
                 }
 
                 .modal-header {
@@ -2563,11 +1848,7 @@ export default function DesignerTasks() {
 
                 .form-grid {
                     display: grid;
-                    grid-template-columns:
-                        repeat(
-                            2,
-                            minmax(0, 1fr)
-                        );
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                     gap: 14px;
                 }
 
@@ -2602,14 +1883,7 @@ export default function DesignerTasks() {
                 .form-group select:focus,
                 .form-group textarea:focus {
                     border-color: #94a3b8;
-                    box-shadow:
-                        0 0 0 3px
-                        rgba(
-                            148,
-                            163,
-                            184,
-                            0.15
-                        );
+                    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
                 }
 
                 .form-group textarea {
@@ -2651,20 +1925,9 @@ export default function DesignerTasks() {
                     cursor: not-allowed;
                 }
 
-
-                /* =========================================
-                   Responsive
-                ========================================= */
-
-                @media (
-                    max-width: 1100px
-                ) {
+                @media (max-width: 1100px) {
                     .stats-grid {
-                        grid-template-columns:
-                            repeat(
-                                3,
-                                minmax(0, 1fr)
-                            );
+                        grid-template-columns: repeat(3, minmax(0, 1fr));
                     }
 
                     .task-card {
@@ -2678,15 +1941,9 @@ export default function DesignerTasks() {
                     }
                 }
 
-                @media (
-                    max-width: 800px
-                ) {
+                @media (max-width: 800px) {
                     .tasks-container {
-                        width:
-                            calc(
-                                100% - 24px
-                            );
-
+                        width: calc(100% - 24px);
                         padding-top: 95px;
                     }
 
@@ -2708,19 +1965,13 @@ export default function DesignerTasks() {
                     }
                 }
 
-                @media (
-                    max-width: 600px
-                ) {
+                @media (max-width: 600px) {
                     .page-header h1 {
                         font-size: 28px;
                     }
 
                     .stats-grid {
-                        grid-template-columns:
-                            repeat(
-                                2,
-                                minmax(0, 1fr)
-                            );
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
                     }
 
                     .task-main {
@@ -2742,9 +1993,7 @@ export default function DesignerTasks() {
                     }
                 }
 
-                @media (
-                    max-width: 400px
-                ) {
+                @media (max-width: 400px) {
                     .stats-grid {
                         grid-template-columns: 1fr;
                     }
