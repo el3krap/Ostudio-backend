@@ -1,16 +1,24 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { uploadBriefFile, deleteUploadedBriefFile } from '../../services/accountManagerService';
 
-import Navbar from '../../components/shared/Navbar';
-import NotificationBell from '../../components/shared/NotificationBell';
-import Loading from '../../components/shared/Loading';
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useState
+} from 'react';
+
+import { useNavigate } from 'react-router-dom';
 
 import {
+    uploadBriefFile,
+    deleteUploadedBriefFile,
     getAccountManagerDashboardData,
     getActiveCoordinators,
     createProject
 } from '../../services/accountManagerService';
+
+import Navbar from '../../components/shared/Navbar';
+import NotificationBell from '../../components/shared/NotificationBell';
+import Loading from '../../components/shared/Loading';
 
 import {
     getCurrentUser,
@@ -20,18 +28,25 @@ import {
 const AccountManagerDashboard = () => {
     const navigate = useNavigate();
 
+    // =========================================
+    // STATE
+    // =========================================
+
     const [user, setUser] = useState(null);
 
     const [projects, setProjects] = useState([]);
     const [coordinators, setCoordinators] = useState([]);
-    const [coordinatorsLoading, setCoordinatorsLoading] = useState(false);
+
+    const [coordinatorsLoading, setCoordinatorsLoading] =
+        useState(false);
 
     const [loading, setLoading] = useState(true);
     const [creatingProject, setCreatingProject] = useState(false);
 
     const [error, setError] = useState('');
 
-    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showCreateModal, setShowCreateModal] =
+        useState(false);
 
     const [formData, setFormData] = useState({
         projectName: '',
@@ -46,9 +61,9 @@ const AccountManagerDashboard = () => {
     const [briefFile, setBriefFile] = useState(null);
     const [uploadProgress, setUploadProgress] = useState(0);
 
-    /* =========================================================
-       Load Current User
-    ========================================================= */
+    // =========================================
+    // LOAD CURRENT USER
+    // =========================================
 
     useEffect(() => {
         const currentUser = getCurrentUser();
@@ -66,9 +81,9 @@ const AccountManagerDashboard = () => {
         setUser(currentUser);
     }, [navigate]);
 
-    /* =========================================================
-       Load Dashboard
-    ========================================================= */
+    // =========================================
+    // LOAD DASHBOARD
+    // =========================================
 
     const loadDashboard = useCallback(async () => {
         try {
@@ -86,21 +101,31 @@ const AccountManagerDashboard = () => {
 
             try {
                 setCoordinatorsLoading(true);
-                const availableCoordinators = await getActiveCoordinators();
+
+                const availableCoordinators =
+                    await getActiveCoordinators();
+
                 setCoordinators(
                     Array.isArray(availableCoordinators)
                         ? availableCoordinators
                         : []
                 );
+
             } catch (coordinatorError) {
-                console.error('Failed to load Coordinators:', coordinatorError);
+                console.error(
+                    'Failed to load Coordinators:',
+                    coordinatorError
+                );
+
                 setCoordinators([]);
+
             } finally {
                 setCoordinatorsLoading(false);
             }
+
         } catch (err) {
             console.error(
-                '❌ Account Manager Dashboard Error:',
+                'Account Manager Dashboard Error:',
                 err
             );
 
@@ -108,6 +133,7 @@ const AccountManagerDashboard = () => {
                 err?.message ||
                 'حدث خطأ أثناء تحميل المشاريع.'
             );
+
         } finally {
             setLoading(false);
         }
@@ -121,9 +147,9 @@ const AccountManagerDashboard = () => {
         loadDashboard();
     }, [user, loadDashboard]);
 
-    /* =========================================================
-       Statistics
-    ========================================================= */
+    // =========================================
+    // STATISTICS
+    // =========================================
 
     const statistics = useMemo(() => {
         const total = projects.length;
@@ -151,9 +177,9 @@ const AccountManagerDashboard = () => {
         };
     }, [projects]);
 
-    /* =========================================================
-       Form Handling
-    ========================================================= */
+    // =========================================
+    // FORM HANDLING
+    // =========================================
 
     const handleInputChange = (event) => {
         const { name, value } = event.target;
@@ -174,13 +200,14 @@ const AccountManagerDashboard = () => {
             managerNotes: '',
             assignedCoordinator: ''
         });
+
         setBriefFile(null);
         setUploadProgress(0);
     };
 
-    /* =========================================================
-       Create Project
-    ========================================================= */
+    // =========================================
+    // CREATE PROJECT
+    // =========================================
 
     const handleCreateProject = async (event) => {
         event.preventDefault();
@@ -191,7 +218,9 @@ const AccountManagerDashboard = () => {
         }
 
         if (!formData.assignedCoordinator) {
-            setError('من فضلك اختار الـ Coordinator المسؤول عن المشروع.');
+            setError(
+                'من فضلك اختار الـ Coordinator المسؤول عن المشروع.'
+            );
             return;
         }
 
@@ -201,6 +230,7 @@ const AccountManagerDashboard = () => {
 
             let uploadedBrief = null;
 
+            // Upload Brief File
             if (briefFile) {
                 uploadedBrief = await uploadBriefFile(
                     briefFile,
@@ -208,29 +238,61 @@ const AccountManagerDashboard = () => {
                 );
             }
 
+            // Create Project
             try {
                 await createProject({
                     projectName: formData.projectName.trim(),
-                    assignedCoordinator: formData.assignedCoordinator,
+
+                    assignedCoordinator:
+                        formData.assignedCoordinator,
+
                     brief: formData.brief.trim(),
-                    briefName: uploadedBrief?.fileName || '',
-                    briefFileUrl: uploadedBrief?.url || '',
-                    briefFileName: uploadedBrief?.fileName || '',
-                    briefFileMimeType: uploadedBrief?.mimeType || '',
-                    briefFileSize: uploadedBrief?.size || 0,
-                    briefStoragePath: uploadedBrief?.storagePath || '',
-                    description: formData.description.trim(),
-                    startDate: formData.startDate || null,
-                    deadline: formData.deadline || null,
-                    managerNotes: formData.managerNotes.trim()
+
+                    briefName:
+                        uploadedBrief?.fileName || '',
+
+                    briefFileUrl:
+                        uploadedBrief?.url || '',
+
+                    briefFileName:
+                        uploadedBrief?.fileName || '',
+
+                    briefFileMimeType:
+                        uploadedBrief?.mimeType || '',
+
+                    briefFileSize:
+                        uploadedBrief?.size || 0,
+
+                    briefStoragePath:
+                        uploadedBrief?.storagePath || '',
+
+                    description:
+                        formData.description.trim(),
+
+                    startDate:
+                        formData.startDate || null,
+
+                    deadline:
+                        formData.deadline || null,
+
+                    managerNotes:
+                        formData.managerNotes.trim()
                 });
+
             } catch (createError) {
+
+                // Remove uploaded file if project creation fails
                 if (uploadedBrief?.storagePath) {
-                    await deleteUploadedBriefFile(uploadedBrief.storagePath)
-                        .catch((cleanupError) => {
-                            console.warn('Brief cleanup failed:', cleanupError);
-                        });
+                    await deleteUploadedBriefFile(
+                        uploadedBrief.storagePath
+                    ).catch((cleanupError) => {
+                        console.warn(
+                            'Brief cleanup failed:',
+                            cleanupError
+                        );
+                    });
                 }
+
                 throw createError;
             }
 
@@ -238,9 +300,10 @@ const AccountManagerDashboard = () => {
             setShowCreateModal(false);
 
             await loadDashboard();
+
         } catch (err) {
             console.error(
-                '❌ Create Project Error:',
+                'Create Project Error:',
                 err
             );
 
@@ -248,14 +311,15 @@ const AccountManagerDashboard = () => {
                 err?.message ||
                 'حدث خطأ أثناء إنشاء المشروع.'
             );
+
         } finally {
             setCreatingProject(false);
         }
     };
 
-    /* =========================================================
-       Open Project
-    ========================================================= */
+    // =========================================
+    // OPEN PROJECT
+    // =========================================
 
     const handleOpenProject = (project) => {
         const projectId =
@@ -271,9 +335,9 @@ const AccountManagerDashboard = () => {
         );
     };
 
-    /* =========================================================
-       Logout
-    ========================================================= */
+    // =========================================
+    // LOGOUT
+    // =========================================
 
     const handleLogout = async () => {
         try {
@@ -282,9 +346,10 @@ const AccountManagerDashboard = () => {
             navigate('/login', {
                 replace: true
             });
+
         } catch (err) {
             console.error(
-                '❌ Logout Error:',
+                'Logout Error:',
                 err
             );
 
@@ -294,9 +359,9 @@ const AccountManagerDashboard = () => {
         }
     };
 
-    /* =========================================================
-       Helpers
-    ========================================================= */
+    // =========================================
+    // HELPERS
+    // =========================================
 
     const formatDate = (dateValue) => {
         if (!dateValue) {
@@ -332,9 +397,9 @@ const AccountManagerDashboard = () => {
         return 'status-progress';
     };
 
-    /* =========================================================
-       Loading
-    ========================================================= */
+    // =========================================
+    // LOADING
+    // =========================================
 
     if (!user || loading) {
         return (
@@ -345,9 +410,9 @@ const AccountManagerDashboard = () => {
         );
     }
 
-    /* =========================================================
-       Render
-    ========================================================= */
+    // =========================================
+    // RENDER
+    // =========================================
 
     return (
         <div className="account-manager-page">
@@ -359,9 +424,9 @@ const AccountManagerDashboard = () => {
 
             <main className="account-manager-content">
 
-                {/* =================================================
-                    Header
-                ================================================= */}
+                {/* =====================================
+                    HEADER
+                ===================================== */}
 
                 <section className="dashboard-header">
 
@@ -381,16 +446,15 @@ const AccountManagerDashboard = () => {
 
                     <div className="header-actions">
 
-                        <NotificationBell
-                            user={user}
-                        />
+                        <NotificationBell user={user} />
 
                         <button
                             type="button"
                             className="create-project-button"
-                            onClick={() =>
-                                setShowCreateModal(true)
-                            }
+                            onClick={() => {
+                                setError('');
+                                setShowCreateModal(true);
+                            }}
                         >
                             <span>＋</span>
                             مشروع جديد
@@ -400,12 +464,13 @@ const AccountManagerDashboard = () => {
 
                 </section>
 
-                {/* =================================================
-                    Error
-                ================================================= */}
+                {/* =====================================
+                    ERROR
+                ===================================== */}
 
                 {error && (
                     <div className="error-message">
+
                         <span>⚠️</span>
 
                         <span>{error}</span>
@@ -416,93 +481,80 @@ const AccountManagerDashboard = () => {
                         >
                             ×
                         </button>
+
                     </div>
                 )}
 
-                {/* =================================================
-                    Statistics
-                ================================================= */}
+                {/* =====================================
+                    STATISTICS
+                ===================================== */}
 
                 <section className="statistics-grid">
 
                     <div className="stat-card">
+
                         <div className="stat-icon">
                             📁
                         </div>
 
                         <div>
-                            <span>
-                                إجمالي المشاريع
-                            </span>
-
-                            <strong>
-                                {statistics.total}
-                            </strong>
+                            <span>إجمالي المشاريع</span>
+                            <strong>{statistics.total}</strong>
                         </div>
+
                     </div>
 
                     <div className="stat-card">
+
                         <div className="stat-icon">
                             🔄
                         </div>
 
                         <div>
-                            <span>
-                                قيد التنفيذ
-                            </span>
-
-                            <strong>
-                                {statistics.inProgress}
-                            </strong>
+                            <span>قيد التنفيذ</span>
+                            <strong>{statistics.inProgress}</strong>
                         </div>
+
                     </div>
 
                     <div className="stat-card">
+
                         <div className="stat-icon">
                             ✅
                         </div>
 
                         <div>
-                            <span>
-                                مكتملة
-                            </span>
-
-                            <strong>
-                                {statistics.completed}
-                            </strong>
+                            <span>مكتملة</span>
+                            <strong>{statistics.completed}</strong>
                         </div>
+
                     </div>
 
                     <div className="stat-card">
+
                         <div className="stat-icon">
                             📅
                         </div>
 
                         <div>
-                            <span>
-                                لها موعد تسليم
-                            </span>
-
-                            <strong>
-                                {statistics.withDeadline}
-                            </strong>
+                            <span>لها موعد تسليم</span>
+                            <strong>{statistics.withDeadline}</strong>
                         </div>
+
                     </div>
 
                 </section>
 
-                {/* =================================================
-                    Projects
-                ================================================= */}
+                {/* =====================================
+                    PROJECTS
+                ===================================== */}
 
                 <section className="projects-section">
 
                     <div className="section-header">
 
                         <div>
-                            <h2>
-                                مشاريعي
-                            </h2>
+                            <h2>مشاريعي</h2>
 
                             <p>
                                 المشاريع التي قمت بإنشائها فقط
@@ -520,6 +572,7 @@ const AccountManagerDashboard = () => {
                     </div>
 
                     {projects.length === 0 ? (
+
                         <div className="empty-state">
 
                             <div className="empty-icon">
@@ -536,15 +589,18 @@ const AccountManagerDashboard = () => {
 
                             <button
                                 type="button"
-                                onClick={() =>
-                                    setShowCreateModal(true)
-                                }
+                                onClick={() => {
+                                    setError('');
+                                    setShowCreateModal(true);
+                                }}
                             >
                                 إنشاء مشروع
                             </button>
 
                         </div>
+
                     ) : (
+
                         <div className="projects-grid">
 
                             {projects.map((project) => {
@@ -589,16 +645,18 @@ const AccountManagerDashboard = () => {
                                         </p>
 
                                         <p className="project-coordinator">
-                                            <strong>Coordinator المسؤول: </strong>
-                                            {project?.assignedCoordinator?.name || 'غير محدد'}
+                                            <strong>
+                                                Coordinator المسؤول:
+                                            </strong>
+
+                                            {project?.assignedCoordinator?.name ||
+                                                'غير محدد'}
                                         </p>
 
                                         <div className="project-meta">
 
                                             <div>
-                                                <span>
-                                                    البداية
-                                                </span>
+                                                <span>البداية</span>
 
                                                 <strong>
                                                     {formatDate(
@@ -608,9 +666,7 @@ const AccountManagerDashboard = () => {
                                             </div>
 
                                             <div>
-                                                <span>
-                                                    التسليم
-                                                </span>
+                                                <span>التسليم</span>
 
                                                 <strong>
                                                     {formatDate(
@@ -625,9 +681,7 @@ const AccountManagerDashboard = () => {
                                             type="button"
                                             className="details-button"
                                             onClick={() =>
-                                                handleOpenProject(
-                                                    project
-                                                )
+                                                handleOpenProject(project)
                                             }
                                         >
                                             عرض تفاصيل المشروع
@@ -645,18 +699,20 @@ const AccountManagerDashboard = () => {
 
             </main>
 
-            {/* =====================================================
-                Create Project Modal
-            ===================================================== */}
+            {/* =============================================
+                CREATE PROJECT MODAL
+            ============================================= */}
 
             {showCreateModal && (
+
                 <div
                     className="modal-overlay"
                     onMouseDown={(event) => {
                         if (
-                            event.target ===
-                            event.currentTarget
+                            event.target === event.currentTarget &&
+                            !creatingProject
                         ) {
+                            resetForm();
                             setShowCreateModal(false);
                         }
                     }}
@@ -664,68 +720,80 @@ const AccountManagerDashboard = () => {
 
                     <div className="create-modal">
 
+                        {/* Modal Header */}
+
                         <div className="modal-header">
-
-                            <div>
-                                <span>
-                                    NEW PROJECT
-                                </span>
-
-                                <h2>
-                                    إنشاء مشروع جديد
-                                </h2>
-                            </div>
 
                             <button
                                 type="button"
-                                onClick={() =>
-                                    setShowCreateModal(false)
-                                }
+                                className="modal-close-button"
+                                onClick={() => {
+                                    if (!creatingProject) {
+                                        resetForm();
+                                        setShowCreateModal(false);
+                                    }
+                                }}
+                                disabled={creatingProject}
+                                aria-label="إغلاق"
                             >
                                 ×
                             </button>
 
+                            <div className="modal-title">
+
+                                <span>NEW PROJECT</span>
+
+                                <h2>
+                                    إنشاء مشروع جديد
+                                </h2>
+
+                            </div>
+
                         </div>
 
-                        <form
-                            onSubmit={handleCreateProject}
-                        >
+                        <form onSubmit={handleCreateProject}>
+
+                            {/* Project Name */}
 
                             <div className="form-group">
 
-                                <label>
+                                <label htmlFor="projectName">
                                     اسم المشروع *
                                 </label>
 
                                 <input
+                                    id="projectName"
                                     type="text"
                                     name="projectName"
-                                    value={
-                                        formData.projectName
-                                    }
-                                    onChange={
-                                        handleInputChange
-                                    }
+                                    value={formData.projectName}
+                                    onChange={handleInputChange}
                                     placeholder="اكتب اسم المشروع"
                                     required
+                                    disabled={creatingProject}
                                 />
 
                             </div>
 
+                            {/* Brief File */}
+
                             <div className="form-group brief-form-group">
 
                                 <div className="brief-upload-heading">
+
                                     <label htmlFor="briefFile">
                                         ملف الـ Brief
                                     </label>
 
                                     <label
                                         htmlFor="briefFile"
-                                        className={`brief-upload-button ${creatingProject ? 'disabled' : ''}`}
+                                        className={`brief-upload-button ${
+                                            creatingProject ? 'disabled' : ''
+                                        }`}
                                     >
                                         <span>＋</span>
                                         رفع ملف من الجهاز
                                     </label>
+
                                 </div>
 
                                 <input
@@ -735,160 +803,218 @@ const AccountManagerDashboard = () => {
                                     className="brief-file-input"
                                     disabled={creatingProject}
                                     onChange={(event) => {
-                                        const selectedFile = event.target.files?.[0] || null;
+                                        const selectedFile =
+                                            event.target.files?.[0] || null;
+
                                         setBriefFile(selectedFile);
                                         setUploadProgress(0);
                                     }}
                                 />
 
                                 {briefFile ? (
+
                                     <div className="brief-selected-file">
-                                        <span className="brief-file-icon">📎</span>
+
+                                        <span className="brief-file-icon">
+                                            📎
+                                        </span>
+
                                         <div className="brief-file-info">
-                                            <strong>{briefFile.name}</strong>
+
+                                            <strong>
+                                                {briefFile.name}
+                                            </strong>
+
                                             <small>
-                                                {(briefFile.size / (1024 * 1024)).toFixed(2)} MB
+                                                {(
+                                                    briefFile.size /
+                                                    (1024 * 1024)
+                                                ).toFixed(2)} MB
+
                                                 {' · '}
-                                                {briefFile.type || 'نوع ملف غير محدد'}
+
+                                                {briefFile.type ||
+                                                    'نوع ملف غير محدد'}
                                             </small>
+
                                         </div>
+
                                         <button
                                             type="button"
                                             className="brief-remove-button"
                                             onClick={() => {
                                                 setBriefFile(null);
                                                 setUploadProgress(0);
-                                                const input = document.getElementById('briefFile');
-                                                if (input) input.value = '';
+
+                                                const input =
+                                                    document.getElementById(
+                                                        'briefFile'
+                                                    );
+
+                                                if (input) {
+                                                    input.value = '';
+                                                }
                                             }}
                                             disabled={creatingProject}
                                             aria-label="إزالة ملف Brief"
                                         >
                                             ×
                                         </button>
+
                                     </div>
+
                                 ) : (
+
                                     <small className="brief-upload-hint">
-                                        يمكنك رفع PDF أو Word أو PowerPoint أو Excel أو صور أو أي نوع ملف آخر.
+                                        يمكنك رفع PDF أو Word أو PowerPoint
+                                        أو Excel أو صور أو أي نوع ملف آخر.
                                     </small>
+
                                 )}
 
                                 {creatingProject && briefFile && (
+
                                     <div className="brief-upload-progress">
+
                                         <div>
-                                            <span>جاري رفع ملف الـ Brief</span>
-                                            <strong>{uploadProgress}%</strong>
+                                            <span>
+                                                جاري رفع ملف الـ Brief
+                                            </span>
+
+                                            <strong>
+                                                {uploadProgress}%
+                                            </strong>
                                         </div>
-                                        <progress value={uploadProgress} max="100" />
+
+                                        <progress
+                                            value={uploadProgress}
+                                            max="100"
+                                        />
+
                                     </div>
+
                                 )}
 
-                                <label className="brief-name-label">
+                                <label
+                                    htmlFor="brief"
+                                    className="brief-name-label"
+                                >
                                     اسم / وصف الـ Brief (اختياري)
                                 </label>
+
                                 <input
+                                    id="brief"
                                     type="text"
                                     name="brief"
                                     value={formData.brief}
                                     onChange={handleInputChange}
                                     placeholder="اكتب وصفًا مختصرًا للـ Brief"
+                                    disabled={creatingProject}
                                 />
+
                             </div>
+
+                            {/* Project Description */}
 
                             <div className="form-group">
 
-                                <label>
+                                <label htmlFor="description">
                                     وصف المشروع
                                 </label>
 
                                 <textarea
+                                    id="description"
                                     name="description"
-                                    value={
-                                        formData.description
-                                    }
-                                    onChange={
-                                        handleInputChange
-                                    }
+                                    value={formData.description}
+                                    onChange={handleInputChange}
                                     placeholder="اكتب وصف المشروع..."
                                     rows="4"
+                                    disabled={creatingProject}
                                 />
 
                             </div>
+
+                            {/* Dates */}
 
                             <div className="date-grid">
 
                                 <div className="form-group">
 
-                                    <label>
+                                    <label htmlFor="startDate">
                                         تاريخ البداية
                                     </label>
 
                                     <input
+                                        id="startDate"
                                         type="date"
                                         name="startDate"
-                                        value={
-                                            formData.startDate
-                                        }
-                                        onChange={
-                                            handleInputChange
-                                        }
+                                        value={formData.startDate}
+                                        onChange={handleInputChange}
+                                        disabled={creatingProject}
                                     />
 
                                 </div>
 
                                 <div className="form-group">
 
-                                    <label>
+                                    <label htmlFor="deadline">
                                         موعد التسليم
                                     </label>
 
                                     <input
+                                        id="deadline"
                                         type="date"
                                         name="deadline"
-                                        value={
-                                            formData.deadline
-                                        }
-                                        onChange={
-                                            handleInputChange
-                                        }
+                                        value={formData.deadline}
+                                        onChange={handleInputChange}
+                                        disabled={creatingProject}
                                     />
 
                                 </div>
 
                             </div>
 
+                            {/* Notes */}
+
                             <div className="form-group">
 
-                                <label>
+                                <label htmlFor="managerNotes">
                                     ملاحظات
                                 </label>
 
                                 <textarea
+                                    id="managerNotes"
                                     name="managerNotes"
-                                    value={
-                                        formData.managerNotes
-                                    }
-                                    onChange={
-                                        handleInputChange
-                                    }
+                                    value={formData.managerNotes}
+                                    onChange={handleInputChange}
                                     placeholder="أي ملاحظات إضافية..."
                                     rows="3"
+                                    disabled={creatingProject}
                                 />
 
                             </div>
 
-                            <div className="form-group">
+                            {/* Coordinator */}
+
+                            <div className="form-group coordinator-form-group">
+
                                 <label htmlFor="assignedCoordinator">
                                     الـ Coordinator المسؤول *
                                 </label>
+
                                 <select
                                     id="assignedCoordinator"
                                     name="assignedCoordinator"
                                     value={formData.assignedCoordinator}
                                     onChange={handleInputChange}
                                     required
-                                    disabled={coordinatorsLoading || coordinators.length === 0 || creatingProject}
+                                    disabled={
+                                        coordinatorsLoading ||
+                                        coordinators.length === 0 ||
+                                        creatingProject
+                                    }
                                 >
+
                                     <option value="">
                                         {coordinatorsLoading
                                             ? 'جاري تحميل الـ Coordinators...'
@@ -896,19 +1022,30 @@ const AccountManagerDashboard = () => {
                                                 ? 'لا توجد حسابات Coordinator نشطة أو معتمدة'
                                                 : 'اختر الـ Coordinator المسؤول'}
                                     </option>
+
                                     {coordinators.map((coordinator) => (
+
                                         <option
                                             key={coordinator._id}
                                             value={coordinator._id}
                                         >
-                                            {coordinator.name || coordinator.email || coordinator._id}
+                                            {coordinator.name ||
+                                                coordinator.email ||
+                                                coordinator._id}
                                         </option>
+
                                     ))}
+
                                 </select>
+
                                 <small>
-                                    سيتم إسناد المشروع للمسؤول المختار فقط وإخطاره بإنشاء المشروع.
+                                    سيتم إسناد المشروع للمسؤول المختار فقط
+                                    وإخطاره بإنشاء المشروع.
                                 </small>
+
                             </div>
+
+                            {/* Modal Actions */}
 
                             <div className="modal-actions">
 
@@ -917,13 +1054,9 @@ const AccountManagerDashboard = () => {
                                     className="cancel-button"
                                     onClick={() => {
                                         resetForm();
-                                        setShowCreateModal(
-                                            false
-                                        );
+                                        setShowCreateModal(false);
                                     }}
-                                    disabled={
-                                        creatingProject
-                                    }
+                                    disabled={creatingProject}
                                 >
                                     إلغاء
                                 </button>
@@ -932,7 +1065,9 @@ const AccountManagerDashboard = () => {
                                     type="submit"
                                     className="submit-button"
                                     disabled={
-                                        creatingProject || coordinatorsLoading || coordinators.length === 0
+                                        creatingProject ||
+                                        coordinatorsLoading ||
+                                        coordinators.length === 0
                                     }
                                 >
                                     {creatingProject
@@ -947,13 +1082,22 @@ const AccountManagerDashboard = () => {
                     </div>
 
                 </div>
+
             )}
+
+            {/* =============================================
+                STYLES
+            ============================================= */}
 
             <style>{`
 
                 * {
                     box-sizing: border-box;
                 }
+
+                /* =====================================
+                   MAIN PAGE
+                ===================================== */
 
                 .account-manager-page {
                     min-height: 100vh;
@@ -967,6 +1111,10 @@ const AccountManagerDashboard = () => {
                     margin: 0 auto;
                     padding: 42px 0 70px;
                 }
+
+                /* =====================================
+                   DASHBOARD HEADER
+                ===================================== */
 
                 .dashboard-header {
                     display: flex;
@@ -1034,6 +1182,10 @@ const AccountManagerDashboard = () => {
                     line-height: 1;
                 }
 
+                /* =====================================
+                   ERROR
+                ===================================== */
+
                 .error-message {
                     margin-bottom: 24px;
                     padding: 13px 16px;
@@ -1055,6 +1207,10 @@ const AccountManagerDashboard = () => {
                     font-size: 20px;
                     cursor: pointer;
                 }
+
+                /* =====================================
+                   STATISTICS
+                ===================================== */
 
                 .statistics-grid {
                     display: grid;
@@ -1099,6 +1255,10 @@ const AccountManagerDashboard = () => {
                     font-size: 27px;
                     line-height: 1;
                 }
+
+                /* =====================================
+                   PROJECTS
+                ===================================== */
 
                 .projects-section {
                     margin-top: 10px;
@@ -1217,6 +1377,16 @@ const AccountManagerDashboard = () => {
                     overflow: hidden;
                 }
 
+                .project-coordinator {
+                    margin: 0 0 14px;
+                    color: #6b7280;
+                    font-size: 11px;
+                }
+
+                .project-coordinator strong {
+                    color: #374151;
+                }
+
                 .project-meta {
                     display: grid;
                     grid-template-columns: 1fr 1fr;
@@ -1266,6 +1436,10 @@ const AccountManagerDashboard = () => {
                     font-size: 16px;
                 }
 
+                /* =====================================
+                   EMPTY STATE
+                ===================================== */
+
                 .empty-state {
                     min-height: 330px;
                     padding: 40px 20px;
@@ -1313,107 +1487,224 @@ const AccountManagerDashboard = () => {
                     cursor: pointer;
                 }
 
+                /* =====================================
+                   MODAL OVERLAY
+                ===================================== */
+
                 .modal-overlay {
                     position: fixed;
                     inset: 0;
                     z-index: 3000;
+
                     display: flex;
                     align-items: center;
                     justify-content: center;
+
                     padding: 20px;
+
                     background: rgba(17, 24, 39, 0.55);
-                    backdrop-filter: blur(4px);
+                    backdrop-filter: blur(5px);
                 }
 
+                /* =====================================
+                   MODAL CONTAINER
+                ===================================== */
+
                 .create-modal {
-                    width: min(620px, 100%);
-                    max-height: calc(100vh - 40px);
+                    width: min(660px, 100%);
+                    max-height: calc(100vh - 48px);
+
                     overflow-y: auto;
-                    padding: 26px;
-                    border-radius: 16px;
+                    overflow-x: hidden;
+
+                    padding: 28px 30px;
+
+                    border-radius: 17px;
                     background: #ffffff;
+
                     box-shadow:
-                        0 25px 60px rgba(0, 0, 0, 0.18);
+                        0 25px 65px rgba(0, 0, 0, 0.20);
+
+                    direction: rtl;
+
+                    scrollbar-width: thin;
+                    scrollbar-color: #cbd5e1 transparent;
                 }
+
+                .create-modal::-webkit-scrollbar {
+                    width: 7px;
+                }
+
+                .create-modal::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+
+                .create-modal::-webkit-scrollbar-thumb {
+                    background: #cbd5e1;
+                    border-radius: 10px;
+                }
+
+                /* =====================================
+                   MODAL HEADER
+                ===================================== */
 
                 .modal-header {
                     display: flex;
+                    flex-direction: row;
                     align-items: flex-start;
                     justify-content: space-between;
-                    gap: 20px;
-                    margin-bottom: 24px;
+
+                    gap: 15px;
+                    margin-bottom: 29px;
                 }
 
-                .modal-header span {
+                .modal-title {
+                    text-align: right;
+                }
+
+                .modal-title span {
                     display: block;
-                    margin-bottom: 5px;
+                    margin-bottom: 7px;
+
                     color: #9ca3af;
-                    font-size: 9px;
+                    font-size: 10px;
                     font-weight: 800;
-                    letter-spacing: 1.4px;
+                    letter-spacing: 1.5px;
+
                     direction: ltr;
                 }
 
-                .modal-header h2 {
+                .modal-title h2 {
                     margin: 0;
-                    font-size: 22px;
+
+                    color: #111827;
+                    font-size: 23px;
+                    font-weight: 800;
                 }
 
-                .modal-header > button {
-                    width: 34px;
-                    height: 34px;
+                .modal-close-button {
+                    width: 37px;
+                    height: 37px;
+                    flex-shrink: 0;
+
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+
                     border: 1px solid #e5e7eb;
-                    border-radius: 8px;
+                    border-radius: 10px;
+
                     background: #ffffff;
                     color: #374151;
-                    font-size: 21px;
+
+                    font-size: 23px;
                     cursor: pointer;
+
+                    transition: background 0.2s ease;
+                }
+
+                .modal-close-button:hover {
+                    background: #f3f4f6;
+                }
+
+                .modal-close-button:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+
+                /* =====================================
+                   FORM
+                ===================================== */
+
+                .create-modal form {
+                    width: 100%;
                 }
 
                 .form-group {
-                    margin-bottom: 17px;
+                    width: 100%;
+                    margin-bottom: 19px;
                 }
 
-                .form-group label {
+                .form-group > label {
                     display: block;
-                    margin-bottom: 7px;
-                    color: #374151;
-                    font-size: 12px;
+
+                    margin-bottom: 9px;
+
+                    color: #1f2937;
+                    font-size: 13px;
                     font-weight: 700;
+
+                    text-align: right;
                 }
 
                 .form-group input,
-                .form-group textarea {
+                .form-group textarea,
+                .form-group select {
                     width: 100%;
-                    padding: 11px 12px;
+                    min-height: 46px;
+
+                    padding: 12px 14px;
+
                     border: 1px solid #d1d5db;
-                    border-radius: 8px;
+                    border-radius: 9px;
+
                     outline: none;
+
                     background: #ffffff;
                     color: #111827;
+
                     font-family: inherit;
                     font-size: 13px;
-                    transition: border-color 0.2s ease,
-                                box-shadow 0.2s ease;
+
+                    text-align: right;
+
+                    transition:
+                        border-color 0.2s ease,
+                        box-shadow 0.2s ease;
+                }
+
+                .form-group input::placeholder,
+                .form-group textarea::placeholder {
+                    color: #9ca3af;
+                    opacity: 1;
                 }
 
                 .form-group input:focus,
-                .form-group textarea:focus {
-                    border-color: #111827;
-                    box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.07);
+                .form-group textarea:focus,
+                .form-group select:focus {
+                    border-color: #94a3b8;
+
+                    box-shadow:
+                        0 0 0 3px rgba(148, 163, 184, 0.12);
+                }
+
+                .form-group input:disabled,
+                .form-group textarea:disabled,
+                .form-group select:disabled {
+                    background: #f9fafb;
+                    cursor: not-allowed;
                 }
 
                 .form-group textarea {
+                    min-height: 110px;
                     resize: vertical;
-                    line-height: 1.6;
+                    line-height: 1.7;
                 }
 
+                /* =====================================
+                   BRIEF UPLOAD
+                ===================================== */
+
+                .brief-form-group {
+                    margin-bottom: 21px;
+                }
 
                 .brief-upload-heading {
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    gap: 14px;
+
+                    gap: 12px;
                     margin-bottom: 10px;
                 }
 
@@ -1422,44 +1713,62 @@ const AccountManagerDashboard = () => {
                 }
 
                 .brief-upload-button {
+                    min-height: 41px;
+
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
                     gap: 7px;
-                    min-height: 38px;
-                    padding: 0 13px;
+
+                    padding: 0 14px;
+
                     border: 1px solid #cbd5e1;
                     border-radius: 9px;
-                    background: #f8fafc;
+
+                    background: #ffffff;
                     color: #1e293b;
+
                     font-size: 12px;
-                    font-weight: 800;
+                    font-weight: 700;
+
                     cursor: pointer;
                     white-space: nowrap;
                 }
 
                 .brief-upload-button:hover {
-                    background: #eef2ff;
-                    border-color: #a5b4fc;
+                    background: #f8fafc;
+                    border-color: #94a3b8;
                 }
 
                 .brief-upload-button.disabled {
-                    opacity: .55;
+                    opacity: 0.5;
                     cursor: not-allowed;
                 }
 
                 .brief-file-input {
-                    display: none;
+                    display: none !important;
+                }
+
+                .brief-upload-hint {
+                    display: block;
+                    margin-top: 9px;
+
+                    color: #94a3b8;
+                    font-size: 11px;
+                    line-height: 1.7;
                 }
 
                 .brief-selected-file {
                     display: flex;
                     align-items: center;
                     gap: 10px;
+
                     margin-top: 10px;
-                    padding: 11px 12px;
+                    padding: 12px;
+
                     border: 1px solid #dbeafe;
-                    border-radius: 10px;
+                    border-radius: 9px;
+
                     background: #f8fbff;
                 }
 
@@ -1483,39 +1792,43 @@ const AccountManagerDashboard = () => {
                     font-size: 12px;
                 }
 
-                .brief-file-info small,
-                .brief-upload-hint {
+                .brief-file-info small {
+                    margin-top: 4px;
                     color: #64748b;
                     font-size: 10px;
-                    line-height: 1.7;
                 }
 
                 .brief-remove-button {
-                    width: 28px;
-                    height: 28px;
+                    width: 29px;
+                    height: 29px;
+
                     border: 0;
                     border-radius: 7px;
+
                     background: #fee2e2;
                     color: #991b1b;
+
                     font-size: 19px;
                     cursor: pointer;
                 }
 
                 .brief-name-label {
                     display: block;
-                    margin-top: 13px;
+                    margin-top: 17px;
                 }
 
                 .brief-upload-progress {
-                    margin-top: 10px;
+                    margin-top: 12px;
                 }
 
                 .brief-upload-progress > div {
                     display: flex;
                     justify-content: space-between;
+
+                    margin-bottom: 6px;
+
                     color: #475569;
                     font-size: 11px;
-                    margin-bottom: 5px;
                 }
 
                 .brief-upload-progress progress {
@@ -1524,30 +1837,74 @@ const AccountManagerDashboard = () => {
                     accent-color: #2563eb;
                 }
 
+                /* =====================================
+                   DATE GRID
+                ===================================== */
+
                 .date-grid {
                     display: grid;
                     grid-template-columns: 1fr 1fr;
-                    gap: 14px;
+                    gap: 16px;
                 }
+
+                .date-grid .form-group {
+                    min-width: 0;
+                }
+
+                .date-grid input[type="date"] {
+                    direction: ltr;
+                    text-align: left;
+                }
+
+                /* =====================================
+                   COORDINATOR
+                ===================================== */
+
+                .coordinator-form-group select {
+                    cursor: pointer;
+                }
+
+                .coordinator-form-group small {
+                    display: block;
+
+                    margin-top: 8px;
+
+                    color: #94a3b8;
+                    font-size: 11px;
+                    line-height: 1.7;
+                }
+
+                /* =====================================
+                   MODAL ACTIONS
+                ===================================== */
 
                 .modal-actions {
                     display: flex;
+                    align-items: center;
                     justify-content: flex-start;
-                    gap: 10px;
-                    margin-top: 24px;
+
+                    gap: 12px;
+
+                    margin-top: 25px;
                     padding-top: 19px;
-                    border-top: 1px solid #f3f4f6;
+
+                    border-top: 1px solid #f1f5f9;
                 }
 
                 .cancel-button,
                 .submit-button {
-                    min-height: 41px;
-                    padding: 0 18px;
-                    border-radius: 8px;
+                    min-height: 43px;
+                    padding: 0 21px;
+
+                    border-radius: 9px;
+
                     font-family: inherit;
                     font-size: 12px;
                     font-weight: 700;
+
                     cursor: pointer;
+
+                    transition: all 0.2s ease;
                 }
 
                 .cancel-button {
@@ -1556,10 +1913,18 @@ const AccountManagerDashboard = () => {
                     color: #374151;
                 }
 
+                .cancel-button:hover {
+                    background: #f9fafb;
+                }
+
                 .submit-button {
-                    border: none;
+                    border: 1px solid #111827;
                     background: #111827;
                     color: #ffffff;
+                }
+
+                .submit-button:hover {
+                    background: #000000;
                 }
 
                 .submit-button:disabled,
@@ -1568,7 +1933,12 @@ const AccountManagerDashboard = () => {
                     cursor: not-allowed;
                 }
 
+                /* =====================================
+                   RESPONSIVE
+                ===================================== */
+
                 @media (max-width: 1100px) {
+
                     .statistics-grid {
                         grid-template-columns: repeat(2, 1fr);
                     }
@@ -1576,9 +1946,11 @@ const AccountManagerDashboard = () => {
                     .projects-grid {
                         grid-template-columns: repeat(2, minmax(0, 1fr));
                     }
+
                 }
 
                 @media (max-width: 700px) {
+
                     .account-manager-content {
                         width: min(100% - 28px, 600px);
                         padding-top: 28px;
@@ -1604,14 +1976,32 @@ const AccountManagerDashboard = () => {
 
                     .date-grid {
                         grid-template-columns: 1fr;
+                        gap: 0;
                     }
 
                     .create-project-button {
                         flex: 1;
                     }
+
+                    .modal-overlay {
+                        padding: 12px;
+                    }
+
+                    .create-modal {
+                        width: 100%;
+                        max-height: calc(100vh - 24px);
+                        padding: 22px 18px;
+                        border-radius: 14px;
+                    }
+
+                    .modal-title h2 {
+                        font-size: 20px;
+                    }
+
                 }
 
                 @media (max-width: 460px) {
+
                     .statistics-grid {
                         grid-template-columns: 1fr;
                     }
@@ -1620,8 +2010,13 @@ const AccountManagerDashboard = () => {
                         min-height: 95px;
                     }
 
-                    .create-modal {
-                        padding: 20px;
+                    .brief-upload-heading {
+                        align-items: flex-start;
+                        flex-direction: column;
+                    }
+
+                    .brief-upload-button {
+                        width: 100%;
                     }
 
                     .modal-actions {
@@ -1632,6 +2027,7 @@ const AccountManagerDashboard = () => {
                     .submit-button {
                         width: 100%;
                     }
+
                 }
 
             `}</style>
