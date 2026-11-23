@@ -430,19 +430,6 @@ const AccountManagerDashboard = () => {
 
                 <section className="dashboard-header">
 
-                    <div>
-                        <span className="dashboard-label">
-                            ACCOUNT MANAGER
-                        </span>
-
-                        <h1>
-                            مرحباً، {user.name || 'User'}
-                        </h1>
-
-                        <p>
-                            إدارة ومتابعة المشاريع التي قمت بإنشائها.
-                        </p>
-                    </div>
 
                     <div className="header-actions">
 
