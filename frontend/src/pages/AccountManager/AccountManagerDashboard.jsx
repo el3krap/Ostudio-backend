@@ -1,3 +1,4 @@
+
 import React, {
     useCallback,
     useEffect,
@@ -201,6 +202,12 @@ const AccountManagerDashboard = () => {
 
         setBriefFile(null);
         setUploadProgress(0);
+
+        const fileInput = document.getElementById('briefFile');
+
+        if (fileInput) {
+            fileInput.value = '';
+        }
     };
 
     // =========================================
@@ -430,12 +437,12 @@ const AccountManagerDashboard = () => {
 
                     <div className="header-actions">
 
-                        {/* زر إنشاء مشروع جديد */}
                         <button
                             type="button"
                             className="create-project-button"
                             onClick={() => {
                                 setError('');
+                                resetForm();
                                 setShowCreateModal(true);
                             }}
                         >
@@ -443,7 +450,6 @@ const AccountManagerDashboard = () => {
                             مشروع جديد
                         </button>
 
-                        {/* زر التحديث - بجانب مشروع جديد من اليسار */}
                         <button
                             type="button"
                             className="refresh-button header-refresh-button"
@@ -548,11 +554,7 @@ const AccountManagerDashboard = () => {
                     <div className="section-header">
 
                         <div>
-                            <h2>مشاريعي</h2>
-
-                            <p>
-                                المشاريع التي قمت بإنشائها فقط
-                            </p>
+                            <h2>My Projects</h2>
                         </div>
 
                     </div>
@@ -577,6 +579,7 @@ const AccountManagerDashboard = () => {
                                 type="button"
                                 onClick={() => {
                                     setError('');
+                                    resetForm();
                                     setShowCreateModal(true);
                                 }}
                             >
@@ -704,7 +707,12 @@ const AccountManagerDashboard = () => {
                     }}
                 >
 
-                    <div className="create-modal">
+                    <div
+                        className="modal"
+                        onMouseDown={(event) =>
+                            event.stopPropagation()
+                        }
+                    >
 
                         {/* Modal Header */}
 
@@ -713,29 +721,22 @@ const AccountManagerDashboard = () => {
                             <button
                                 type="button"
                                 className="modal-close-button"
+                                disabled={creatingProject}
                                 onClick={() => {
                                     if (!creatingProject) {
                                         resetForm();
                                         setShowCreateModal(false);
                                     }
                                 }}
-                                disabled={creatingProject}
                                 aria-label="إغلاق"
                             >
                                 ×
                             </button>
 
-                            <div className="modal-title">
-
-                                <span>NEW PROJECT</span>
-
-                                <h2>
-                                    إنشاء مشروع جديد
-                                </h2>
-
-                            </div>
-
                         </div>
+
+
+                        {/* Project Form */}
 
                         <form onSubmit={handleCreateProject}>
 
@@ -744,7 +745,7 @@ const AccountManagerDashboard = () => {
                             <div className="form-group">
 
                                 <label htmlFor="projectName">
-                                    اسم المشروع *
+                                    <strong>اسم المشروع</strong>
                                 </label>
 
                                 <input
@@ -760,102 +761,37 @@ const AccountManagerDashboard = () => {
 
                             </div>
 
-                            {/* Brief File */}
 
-                            <div className="form-group brief-form-group">
+                            {/* Brief Upload */}
 
-                                <div className="brief-upload-heading">
+                            <div className="form-group">
 
-                                    <label htmlFor="briefFile">
-                                        ملف الـ Brief
-                                    </label>
-
-                                    <label
-                                        htmlFor="briefFile"
-                                        className={`brief-upload-button ${
-                                            creatingProject ? 'disabled' : ''
-                                        }`}
-                                    >
-                                        <span>＋</span>
-                                        رفع ملف من الجهاز
-                                    </label>
-
-                                </div>
+                                <label htmlFor="briefFile">
+                                    <strong>Brief</strong>
+                                </label>
 
                                 <input
                                     id="briefFile"
                                     type="file"
-                                    accept="*/*"
-                                    className="brief-file-input"
-                                    disabled={creatingProject}
                                     onChange={(event) => {
-                                        const selectedFile =
-                                            event.target.files?.[0] || null;
+                                        setBriefFile(
+                                            event.target.files?.[0] || null
+                                        );
 
-                                        setBriefFile(selectedFile);
                                         setUploadProgress(0);
                                     }}
+                                    disabled={creatingProject}
                                 />
 
-                                {briefFile ? (
-
-                                    <div className="brief-selected-file">
-
-                                        <span className="brief-file-icon">
-                                            📎
-                                        </span>
-
-                                        <div className="brief-file-info">
-
-                                            <strong>
-                                                {briefFile.name}
-                                            </strong>
-
-                                            <small>
-                                                {(
-                                                    briefFile.size /
-                                                    (1024 * 1024)
-                                                ).toFixed(2)} MB
-
-                                                {' · '}
-
-                                                {briefFile.type ||
-                                                    'نوع ملف غير محدد'}
-                                            </small>
-
-                                        </div>
-
-                                        <button
-                                            type="button"
-                                            className="brief-remove-button"
-                                            onClick={() => {
-                                                setBriefFile(null);
-                                                setUploadProgress(0);
-
-                                                const input =
-                                                    document.getElementById(
-                                                        'briefFile'
-                                                    );
-
-                                                if (input) {
-                                                    input.value = '';
-                                                }
-                                            }}
-                                            disabled={creatingProject}
-                                            aria-label="إزالة ملف Brief"
-                                        >
-                                            ×
-                                        </button>
-
-                                    </div>
-
-                                ) : (
-
-                                    <small className="brief-upload-hint">
-                                        يمكنك رفع PDF أو Word أو PowerPoint
-                                        أو Excel أو صور أو أي نوع ملف آخر.
+                                {briefFile && (
+                                    <small className="selected-file">
+                                        الملف المختار: {briefFile.name}
+                                        {' — '}
+                                        {(
+                                            briefFile.size /
+                                            (1024 * 1024)
+                                        ).toFixed(2)} MB
                                     </small>
-
                                 )}
 
                                 {creatingProject && briefFile && (
@@ -881,44 +817,38 @@ const AccountManagerDashboard = () => {
 
                                 )}
 
-                                <label
-                                    htmlFor="brief"
-                                    className="brief-name-label"
-                                >
-                                    اسم / وصف الـ Brief (اختياري)
-                                </label>
-
                                 <input
-                                    id="brief"
                                     type="text"
                                     name="brief"
                                     value={formData.brief}
                                     onChange={handleInputChange}
-                                    placeholder="اكتب وصفًا مختصرًا للـ Brief"
+                                    placeholder="اسم / وصف الـ Brief (اختياري)"
                                     disabled={creatingProject}
                                 />
 
                             </div>
+
 
                             {/* Project Description */}
 
                             <div className="form-group">
 
                                 <label htmlFor="description">
-                                    وصف المشروع
+                                    <strong>وصف المشروع</strong>
                                 </label>
 
                                 <textarea
                                     id="description"
                                     name="description"
+                                    rows={4}
                                     value={formData.description}
                                     onChange={handleInputChange}
                                     placeholder="اكتب وصف المشروع..."
-                                    rows="4"
                                     disabled={creatingProject}
                                 />
 
                             </div>
+
 
                             {/* Dates */}
 
@@ -927,7 +857,7 @@ const AccountManagerDashboard = () => {
                                 <div className="form-group">
 
                                     <label htmlFor="startDate">
-                                        تاريخ البداية
+                                        <strong>تاريخ البداية</strong>
                                     </label>
 
                                     <input
@@ -944,7 +874,7 @@ const AccountManagerDashboard = () => {
                                 <div className="form-group">
 
                                     <label htmlFor="deadline">
-                                        موعد التسليم
+                                        <strong>موعد التسليم</strong>
                                     </label>
 
                                     <input
@@ -960,32 +890,34 @@ const AccountManagerDashboard = () => {
 
                             </div>
 
-                            {/* Notes */}
+
+                            {/* Manager Notes */}
 
                             <div className="form-group">
 
                                 <label htmlFor="managerNotes">
-                                    ملاحظات
+                                    <strong>ملاحظات</strong>
                                 </label>
 
                                 <textarea
                                     id="managerNotes"
                                     name="managerNotes"
+                                    rows={4}
                                     value={formData.managerNotes}
                                     onChange={handleInputChange}
-                                    placeholder="أي ملاحظات إضافية..."
-                                    rows="3"
+                                    placeholder="أي ملاحظات خاصة بالمشروع"
                                     disabled={creatingProject}
                                 />
 
                             </div>
 
-                            {/* Coordinator */}
 
-                            <div className="form-group coordinator-form-group">
+                            {/* Coordinator Selection */}
+
+                            <div className="form-group">
 
                                 <label htmlFor="assignedCoordinator">
-                                    الـ Coordinator المسؤول *
+                                    <strong>Coordinator</strong>
                                 </label>
 
                                 <select
@@ -995,18 +927,18 @@ const AccountManagerDashboard = () => {
                                     onChange={handleInputChange}
                                     required
                                     disabled={
+                                        creatingProject ||
                                         coordinatorsLoading ||
-                                        coordinators.length === 0 ||
-                                        creatingProject
+                                        coordinators.length === 0
                                     }
                                 >
 
                                     <option value="">
                                         {coordinatorsLoading
-                                            ? 'جاري تحميل الـ Coordinators...'
+                                            ? 'جاري تحميل Coordinators...'
                                             : coordinators.length === 0
-                                                ? 'لا توجد حسابات Coordinator نشطة أو معتمدة'
-                                                : 'اختر الـ Coordinator المسؤول'}
+                                                ? 'لا توجد حسابات Coordinator نشطة'
+                                                : 'Choose Coordinator'}
                                     </option>
 
                                     {coordinators.map((coordinator) => (
@@ -1018,38 +950,26 @@ const AccountManagerDashboard = () => {
                                             {coordinator.name ||
                                                 coordinator.email ||
                                                 coordinator._id}
+
+                                            {coordinator.email
+                                                ? ` — ${coordinator.email}`
+                                                : ''}
                                         </option>
 
                                     ))}
 
                                 </select>
 
-                                <small>
-                                    سيتم إسناد المشروع للمسؤول المختار فقط
-                                    وإخطاره بإنشاء المشروع.
-                                </small>
-
                             </div>
 
-                            {/* Modal Actions */}
+
+                            {/* Form Buttons */}
 
                             <div className="modal-actions">
 
                                 <button
-                                    type="button"
-                                    className="cancel-button"
-                                    onClick={() => {
-                                        resetForm();
-                                        setShowCreateModal(false);
-                                    }}
-                                    disabled={creatingProject}
-                                >
-                                    إلغاء
-                                </button>
-
-                                <button
                                     type="submit"
-                                    className="submit-button"
+                                    className="save-button"
                                     disabled={
                                         creatingProject ||
                                         coordinatorsLoading ||
@@ -1059,6 +979,18 @@ const AccountManagerDashboard = () => {
                                     {creatingProject
                                         ? 'جاري الإنشاء...'
                                         : 'إنشاء المشروع'}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    className="cancel-button"
+                                    disabled={creatingProject}
+                                    onClick={() => {
+                                        resetForm();
+                                        setShowCreateModal(false);
+                                    }}
+                                >
+                                    إلغاء
                                 </button>
 
                             </div>
@@ -1167,8 +1099,6 @@ const AccountManagerDashboard = () => {
                     font-size: 19px;
                     line-height: 1;
                 }
-
-                /* Refresh button beside Create Project */
 
                 .header-refresh-button {
                     min-height: 42px;
@@ -1501,52 +1431,42 @@ const AccountManagerDashboard = () => {
                 .modal-overlay {
                     position: fixed;
                     inset: 0;
-                    z-index: 3000;
+                    z-index: 9999;
+
+                    background: rgba(15, 23, 42, 0.48);
 
                     display: flex;
                     align-items: center;
                     justify-content: center;
 
                     padding: 20px;
-
-                    background: rgba(17, 24, 39, 0.55);
-                    backdrop-filter: blur(5px);
                 }
 
                 /* =====================================
                    MODAL CONTAINER
                 ===================================== */
 
-                .create-modal {
-                    width: min(660px, 100%);
-                    max-height: calc(100vh - 48px);
-
+                .modal {
+                    width: min(650px, 100%);
+                    max-height: calc(100vh - 40px);
                     overflow-y: auto;
                     overflow-x: hidden;
 
-                    padding: 28px 30px;
-
-                    border-radius: 17px;
                     background: #ffffff;
+                    border-radius: 18px;
+                    padding: 22px;
 
                     box-shadow:
-                        0 25px 65px rgba(0, 0, 0, 0.20);
+                        0 25px 70px rgba(15, 23, 42, 0.25);
 
                     direction: rtl;
-
-                    scrollbar-width: thin;
-                    scrollbar-color: #cbd5e1 transparent;
                 }
 
-                .create-modal::-webkit-scrollbar {
+                .modal::-webkit-scrollbar {
                     width: 7px;
                 }
 
-                .create-modal::-webkit-scrollbar-track {
-                    background: transparent;
-                }
-
-                .create-modal::-webkit-scrollbar-thumb {
+                .modal::-webkit-scrollbar-thumb {
                     background: #cbd5e1;
                     border-radius: 10px;
                 }
@@ -1557,61 +1477,33 @@ const AccountManagerDashboard = () => {
 
                 .modal-header {
                     display: flex;
-                    flex-direction: row;
+                    justify-content: flex-start;
                     align-items: flex-start;
-                    justify-content: space-between;
-
                     gap: 15px;
-                    margin-bottom: 29px;
-                }
 
-                .modal-title {
-                    text-align: right;
-                }
-
-                .modal-title span {
-                    display: block;
-                    margin-bottom: 7px;
-
-                    color: #9ca3af;
-                    font-size: 10px;
-                    font-weight: 800;
-                    letter-spacing: 1.5px;
-
-                    direction: ltr;
-                }
-
-                .modal-title h2 {
-                    margin: 0;
-
-                    color: #111827;
-                    font-size: 23px;
-                    font-weight: 800;
+                    margin-bottom: 20px;
                 }
 
                 .modal-close-button {
-                    width: 37px;
-                    height: 37px;
-                    flex-shrink: 0;
+                    width: 35px;
+                    height: 35px;
 
                     display: flex;
                     align-items: center;
                     justify-content: center;
 
-                    border: 1px solid #e5e7eb;
-                    border-radius: 10px;
+                    border: 0;
+                    border-radius: 8px;
 
-                    background: #ffffff;
-                    color: #374151;
+                    background: #f1f5f9;
+                    color: #475569;
 
                     font-size: 23px;
                     cursor: pointer;
-
-                    transition: background 0.2s ease;
                 }
 
                 .modal-close-button:hover {
-                    background: #f3f4f6;
+                    background: #e2e8f0;
                 }
 
                 .modal-close-button:disabled {
@@ -1620,212 +1512,94 @@ const AccountManagerDashboard = () => {
                 }
 
                 /* =====================================
-                   FORM
+                   FORM GROUPS
                 ===================================== */
 
-                .create-modal form {
-                    width: 100%;
+                .modal .form-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 7px;
+
+                    margin-bottom: 14px;
                 }
 
-                .form-group {
-                    width: 100%;
-                    margin-bottom: 19px;
+                .modal .form-group label {
+                    color: #475569;
+                    font-size: 10px;
+                    font-weight: 900;
                 }
 
-                .form-group > label {
-                    display: block;
-
-                    margin-bottom: 9px;
-
-                    color: #1f2937;
-                    font-size: 13px;
-                    font-weight: 700;
-
-                    text-align: right;
+                .modal .form-group label strong {
+                    font-weight: 900;
                 }
 
-                .form-group input,
-                .form-group textarea,
-                .form-group select {
+                /* =====================================
+                   INPUTS / TEXTAREA / SELECT
+                ===================================== */
+
+                .modal .form-group input,
+                .modal .form-group textarea,
+                .modal .form-group select {
                     width: 100%;
-                    min-height: 46px;
+                    min-height: 40px;
 
-                    padding: 12px 14px;
-
-                    border: 1px solid #d1d5db;
+                    border: 1px solid #dfe6ef;
                     border-radius: 9px;
 
-                    outline: none;
+                    padding: 11px 12px;
+
+                    outline: 0;
 
                     background: #ffffff;
-                    color: #111827;
+                    color: #334155;
 
                     font-family: inherit;
-                    font-size: 13px;
+                    font-size: 11px;
 
                     text-align: right;
-
-                    transition:
-                        border-color 0.2s ease,
-                        box-shadow 0.2s ease;
                 }
 
-                .form-group input::placeholder,
-                .form-group textarea::placeholder {
-                    color: #9ca3af;
-                    opacity: 1;
-                }
-
-                .form-group input:focus,
-                .form-group textarea:focus,
-                .form-group select:focus {
-                    border-color: #94a3b8;
-
-                    box-shadow:
-                        0 0 0 3px rgba(148, 163, 184, 0.12);
-                }
-
-                .form-group input:disabled,
-                .form-group textarea:disabled,
-                .form-group select:disabled {
-                    background: #f9fafb;
-                    cursor: not-allowed;
-                }
-
-                .form-group textarea {
-                    min-height: 110px;
+                .modal .form-group textarea {
+                    min-height: 90px;
                     resize: vertical;
                     line-height: 1.7;
                 }
 
+                .modal .form-group input:focus,
+                .modal .form-group textarea:focus,
+                .modal .form-group select:focus {
+                    border-color: #94a3b8;
+
+                    box-shadow:
+                        0 0 0 3px rgba(148, 163, 184, 0.15);
+                }
+
+                .modal .form-group input:disabled,
+                .modal .form-group textarea:disabled,
+                .modal .form-group select:disabled {
+                    background: #f8fafc;
+                    cursor: not-allowed;
+                    opacity: 0.7;
+                }
+
                 /* =====================================
-                   BRIEF UPLOAD
+                   BRIEF FILE
                 ===================================== */
 
-                .brief-form-group {
-                    margin-bottom: 21px;
-                }
-
-                .brief-upload-heading {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-
-                    gap: 12px;
-                    margin-bottom: 10px;
-                }
-
-                .brief-upload-heading > label:first-child {
-                    margin: 0;
-                }
-
-                .brief-upload-button {
-                    min-height: 41px;
-
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 7px;
-
-                    padding: 0 14px;
-
-                    border: 1px solid #cbd5e1;
-                    border-radius: 9px;
-
-                    background: #ffffff;
-                    color: #1e293b;
-
-                    font-size: 12px;
-                    font-weight: 700;
-
+                .modal .form-group input[type="file"] {
                     cursor: pointer;
-                    white-space: nowrap;
+                    direction: rtl;
                 }
 
-                .brief-upload-button:hover {
-                    background: #f8fafc;
-                    border-color: #94a3b8;
-                }
-
-                .brief-upload-button.disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
-
-                .brief-file-input {
-                    display: none !important;
-                }
-
-                .brief-upload-hint {
+                .selected-file {
                     display: block;
-                    margin-top: 9px;
-
-                    color: #94a3b8;
-                    font-size: 11px;
-                    line-height: 1.7;
-                }
-
-                .brief-selected-file {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-
-                    margin-top: 10px;
-                    padding: 12px;
-
-                    border: 1px solid #dbeafe;
-                    border-radius: 9px;
-
-                    background: #f8fbff;
-                }
-
-                .brief-file-icon {
-                    font-size: 20px;
-                }
-
-                .brief-file-info {
-                    min-width: 0;
-                    flex: 1;
-                }
-
-                .brief-file-info strong,
-                .brief-file-info small {
-                    display: block;
+                    color: #64748b;
+                    font-size: 10px;
                     overflow-wrap: anywhere;
                 }
 
-                .brief-file-info strong {
-                    color: #1e293b;
-                    font-size: 12px;
-                }
-
-                .brief-file-info small {
-                    margin-top: 4px;
-                    color: #64748b;
-                    font-size: 10px;
-                }
-
-                .brief-remove-button {
-                    width: 29px;
-                    height: 29px;
-
-                    border: 0;
-                    border-radius: 7px;
-
-                    background: #fee2e2;
-                    color: #991b1b;
-
-                    font-size: 19px;
-                    cursor: pointer;
-                }
-
-                .brief-name-label {
-                    display: block;
-                    margin-top: 17px;
-                }
-
                 .brief-upload-progress {
-                    margin-top: 12px;
+                    margin: 5px 0 10px;
                 }
 
                 .brief-upload-progress > div {
@@ -1835,7 +1609,7 @@ const AccountManagerDashboard = () => {
                     margin-bottom: 6px;
 
                     color: #475569;
-                    font-size: 11px;
+                    font-size: 10px;
                 }
 
                 .brief-upload-progress progress {
@@ -1851,7 +1625,7 @@ const AccountManagerDashboard = () => {
                 .date-grid {
                     display: grid;
                     grid-template-columns: 1fr 1fr;
-                    gap: 16px;
+                    gap: 12px;
                 }
 
                 .date-grid .form-group {
@@ -1864,78 +1638,58 @@ const AccountManagerDashboard = () => {
                 }
 
                 /* =====================================
-                   COORDINATOR
-                ===================================== */
-
-                .coordinator-form-group select {
-                    cursor: pointer;
-                }
-
-                .coordinator-form-group small {
-                    display: block;
-
-                    margin-top: 8px;
-
-                    color: #94a3b8;
-                    font-size: 11px;
-                    line-height: 1.7;
-                }
-
-                /* =====================================
                    MODAL ACTIONS
                 ===================================== */
 
-                .modal-actions {
+                .modal .modal-actions {
                     display: flex;
+                    flex-direction: row;
+                    direction: rtl;
+
+                    justify-content: space-between;
                     align-items: center;
-                    justify-content: flex-start;
 
-                    gap: 12px;
+                    gap: 8px;
+                    margin-top: 20px;
+                    padding-top: 0;
 
-                    margin-top: 25px;
-                    padding-top: 19px;
-
-                    border-top: 1px solid #f1f5f9;
+                    border-top: 0;
                 }
 
-                .cancel-button,
-                .submit-button {
-                    min-height: 43px;
-                    padding: 0 21px;
-
+                .modal .cancel-button,
+                .modal .save-button {
+                    border: 0;
                     border-radius: 9px;
 
-                    font-family: inherit;
-                    font-size: 12px;
-                    font-weight: 700;
+                    padding: 10px 17px;
 
                     cursor: pointer;
 
-                    transition: all 0.2s ease;
+                    font-family: inherit;
+                    font-size: 10px;
+                    font-weight: 900;
                 }
 
-                .cancel-button {
-                    border: 1px solid #e5e7eb;
-                    background: #ffffff;
-                    color: #374151;
+                .modal .cancel-button {
+                    background: #f1f5f9;
+                    color: #475569;
                 }
 
-                .cancel-button:hover {
-                    background: #f9fafb;
-                }
-
-                .submit-button {
-                    border: 1px solid #111827;
+                .modal .save-button {
                     background: #111827;
                     color: #ffffff;
                 }
 
-                .submit-button:hover {
+                .modal .cancel-button:hover {
+                    background: #e2e8f0;
+                }
+
+                .modal .save-button:hover {
                     background: #000000;
                 }
 
-                .submit-button:disabled,
-                .cancel-button:disabled {
+                .modal .cancel-button:disabled,
+                .modal .save-button:disabled {
                     opacity: 0.55;
                     cursor: not-allowed;
                 }
@@ -1981,11 +1735,6 @@ const AccountManagerDashboard = () => {
                         grid-template-columns: 1fr;
                     }
 
-                    .date-grid {
-                        grid-template-columns: 1fr;
-                        gap: 0;
-                    }
-
                     .create-project-button {
                         flex: 1;
                     }
@@ -1998,15 +1747,16 @@ const AccountManagerDashboard = () => {
                         padding: 12px;
                     }
 
-                    .create-modal {
+                    .modal {
                         width: 100%;
                         max-height: calc(100vh - 24px);
-                        padding: 22px 18px;
+                        padding: 18px;
                         border-radius: 14px;
                     }
 
-                    .modal-title h2 {
-                        font-size: 20px;
+                    .date-grid {
+                        grid-template-columns: 1fr;
+                        gap: 0;
                     }
 
                 }
@@ -2021,22 +1771,13 @@ const AccountManagerDashboard = () => {
                         min-height: 95px;
                     }
 
-                    .brief-upload-heading {
-                        align-items: flex-start;
-                        flex-direction: column;
+                    .modal .modal-actions {
+                        gap: 10px;
                     }
 
-                    .brief-upload-button {
-                        width: 100%;
-                    }
-
-                    .modal-actions {
-                        flex-direction: column;
-                    }
-
-                    .cancel-button,
-                    .submit-button {
-                        width: 100%;
+                    .modal .cancel-button,
+                    .modal .save-button {
+                        flex: 1;
                     }
 
                 }
