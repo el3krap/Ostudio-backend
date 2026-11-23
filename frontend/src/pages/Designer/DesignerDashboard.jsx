@@ -592,7 +592,7 @@ export default function DesignerDashboard() {
         return (
             <Loading
                 fullScreen
-                message="جاري تحميل لوحة المصمم..."
+                message="Designer..."
             />
         );
     }

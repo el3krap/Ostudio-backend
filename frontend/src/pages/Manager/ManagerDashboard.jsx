@@ -654,7 +654,7 @@ managerNotes:
         return (
             <Loading
                 fullScreen
-                message="جاري تحميل لوحة تحكم الـ Manager..."
+                message="Manager..."
             />
         );
     }

@@ -656,7 +656,7 @@ export default function CoordinatorDashboard() {
         return (
             <Loading
                 fullScreen
-                message="جاري تحميل لوحة الـ Coordinator..."
+                message="Coordinator..."
             />
         );
     }

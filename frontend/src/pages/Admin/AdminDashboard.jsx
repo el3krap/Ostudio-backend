@@ -408,7 +408,7 @@ const AdminDashboard = () => {
         return (
             <Loading
                 fullScreen
-                message="جاري تحميل لوحة تحكم الأدمن..."
+                message="Admin Dashboard..."
             />
         );
     }

@@ -410,7 +410,7 @@ const AccountManagerDashboard = () => {
         return (
             <Loading
                 fullScreen
-                message="جاري تحميل لوحة Account Manager..."
+                message="Account Manager..."
             />
         );
     }
