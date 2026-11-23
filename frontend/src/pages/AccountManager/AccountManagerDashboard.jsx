@@ -1,4 +1,3 @@
-
 import React, {
     useCallback,
     useEffect,
@@ -17,7 +16,6 @@ import {
 } from '../../services/accountManagerService';
 
 import Navbar from '../../components/shared/Navbar';
-import NotificationBell from '../../components/shared/NotificationBell';
 import Loading from '../../components/shared/Loading';
 
 import {
@@ -430,11 +428,9 @@ const AccountManagerDashboard = () => {
 
                 <section className="dashboard-header">
 
-
                     <div className="header-actions">
 
-                        <NotificationBell user={user} />
-
+                        {/* زر إنشاء مشروع جديد */}
                         <button
                             type="button"
                             className="create-project-button"
@@ -445,6 +441,17 @@ const AccountManagerDashboard = () => {
                         >
                             <span>＋</span>
                             مشروع جديد
+                        </button>
+
+                        {/* زر التحديث - بجانب مشروع جديد من اليسار */}
+                        <button
+                            type="button"
+                            className="refresh-button header-refresh-button"
+                            onClick={loadDashboard}
+                            disabled={loading}
+                        >
+                            <span className="refresh-icon">↻</span>
+                            تحديث
                         </button>
 
                     </div>
@@ -547,14 +554,6 @@ const AccountManagerDashboard = () => {
                                 المشاريع التي قمت بإنشائها فقط
                             </p>
                         </div>
-
-                        <button
-                            type="button"
-                            className="refresh-button"
-                            onClick={loadDashboard}
-                        >
-                            ↻ تحديث
-                        </button>
 
                     </div>
 
@@ -1169,6 +1168,42 @@ const AccountManagerDashboard = () => {
                     line-height: 1;
                 }
 
+                /* Refresh button beside Create Project */
+
+                .header-refresh-button {
+                    min-height: 42px;
+                    padding: 0 16px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 7px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 9px;
+                    background: #ffffff;
+                    color: #374151;
+                    font-size: 12px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: background 0.2s ease,
+                                border-color 0.2s ease;
+                }
+
+                .header-refresh-button:hover {
+                    background: #f9fafb;
+                    border-color: #d1d5db;
+                }
+
+                .header-refresh-button:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                }
+
+                .refresh-icon {
+                    display: inline-block;
+                    font-size: 18px;
+                    line-height: 1;
+                }
+
                 /* =====================================
                    ERROR
                 ===================================== */
@@ -1269,21 +1304,6 @@ const AccountManagerDashboard = () => {
                     margin: 5px 0 0;
                     color: #6b7280;
                     font-size: 13px;
-                }
-
-                .refresh-button {
-                    border: 1px solid #e5e7eb;
-                    border-radius: 8px;
-                    padding: 9px 14px;
-                    background: #ffffff;
-                    color: #374151;
-                    font-size: 12px;
-                    font-weight: 600;
-                    cursor: pointer;
-                }
-
-                .refresh-button:hover {
-                    background: #f9fafb;
                 }
 
                 .projects-grid {
@@ -1968,6 +1988,10 @@ const AccountManagerDashboard = () => {
 
                     .create-project-button {
                         flex: 1;
+                    }
+
+                    .header-refresh-button {
+                        flex-shrink: 0;
                     }
 
                     .modal-overlay {
